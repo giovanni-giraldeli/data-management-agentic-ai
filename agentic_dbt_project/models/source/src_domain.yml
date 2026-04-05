@@ -11,6 +11,11 @@ sources:
             description: Unique identifier of the domain
           - name: domain_group_id
             description: Unique identifier of the domain group
+            data_tests:
+              - relationships:
+                  arguments:
+                    field: domain_group_id
+                    to: source('domains', 'domain_group')
           - name: full_subpage_count
             description: The number of subpages for the domain
           - name: is_temp_domains
@@ -27,6 +32,11 @@ sources:
             description: Unique identifier of the domain group
           - name: customer_id
             description: Unique identifier of a customer
+            data_tests:
+              - relationships:
+                  arguments:
+                    field: user_id
+                    to: source('aspnet', 'aspnet_profile')
           - name: dw_valid_from
             description: The timestamp from which the record is valid in the data warehouse
           - name: dw_valid_to

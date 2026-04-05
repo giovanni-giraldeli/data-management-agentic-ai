@@ -10,6 +10,11 @@ sources:
         columns:
           - name: user_id
             description: The unique identifier of a user
+            data_tests:
+              - relationships:
+                  arguments:
+                    field: user_id
+                    to: source('aspnet', 'aspnet_profile')
           - name: user_create_time
             description: The datetime that the user was created in the system
           - name: dw_valid_from
