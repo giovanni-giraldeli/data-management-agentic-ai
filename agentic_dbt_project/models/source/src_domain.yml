@@ -1,0 +1,33 @@
+sources:
+  - name: domains
+    description: Backend raw data for the domain events
+    database: dev
+    schema: main
+    tables:
+      - name: domain
+        description: Contains the domain events over time
+        columns:
+          - name: domain_id
+            description: Unique identifier of the domain
+          - name: domain_group_id
+            description: Unique identifier of the domain group
+          - name: full_subpage_count
+            description: The number of subpages for the domain
+          - name: is_temp_domains
+            description: A flag to indicate if the domain is temporary
+          - name: dw_valid_from
+            description: The timestamp from which the record is valid in the data warehouse
+          - name: dw_valid_to
+            description: The timestamp until which the record is valid in the data warehouse
+
+      - name: domain_group
+        description: Associates each domain group with their respective customer
+        columns:
+          - name: domain_group_id
+            description: Unique identifier of the domain group
+          - name: customer_id
+            description: Unique identifier of a customer
+          - name: dw_valid_from
+            description: The timestamp from which the record is valid in the data warehouse
+          - name: dw_valid_to
+            description: The timestamp until which the record is valid in the data warehouse

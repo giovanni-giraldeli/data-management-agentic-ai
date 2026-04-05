@@ -1,0 +1,48 @@
+sources:
+  - name: aspnet
+    description: Backend raw data from customers information
+    database: dev
+    schema: main
+    tables:
+
+      - name: aspnet_membership
+        description: Has the date when the customer was created
+        columns:
+          - name: user_id
+            description: The unique identifier of a user
+          - name: user_create_time
+            description: The datetime that the user was created in the system
+          - name: dw_valid_from
+            description: The timestamp from which the record is valid in the data warehouse
+          - name: dw_valid_to
+            description: The timestamp until which the record is valid in the data warehouse
+
+      - name: aspnet_profile
+        description: Contains details about the customer
+        columns:
+          - name: user_id
+            description: The unique identifier of a user
+          - name: address_country_code
+            description: The ISO 2 digit country code where the customer is located
+          - name: payment_currency
+            description: The currency associated with the user payment method
+          - name: payment_card_expiration_date
+            description: The expiration date for the card
+          - name: payment_card_type
+            description: The brand of the card
+          - name: payment_data_completed
+            description: Indicates if the payment method data is complete
+          - name: user_language
+            description: User language in the application
+          - name: wants_newsletter
+            description: Indicates if the user wants to receive the newsletter
+          - name: company_size
+            description: Bins of the company size
+          - name: customer_plan
+            description: The type of the plan associated with the user
+          - name: customer_payment_type
+            description: Indicates the payment method associated with the user
+          - name: dw_valid_from
+            description: The timestamp from which the record is valid in the data warehouse
+          - name: dw_valid_to
+            description: The timestamp until which the record is valid in the data warehouse
