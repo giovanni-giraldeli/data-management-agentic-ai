@@ -1,4 +1,16 @@
+# python
 .venv/
 __pycache__/
 *.pyc
 .env
+
+# dbt
+agentic_dbt_project/target/
+agentic_dbt_project/dbt_packages/
+agentic_dbt_project/logs/
+agentic_dbt_project/dev.duckdb
+
+# duckdb
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp
