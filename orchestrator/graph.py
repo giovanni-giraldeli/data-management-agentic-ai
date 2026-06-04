@@ -343,6 +343,15 @@ async def run_pipeline(task: str) -> dict[str, Any]:
     -------
     The final graph state dictionary.
     """
+    from pathlib import Path as _Path
+
+    # The official dbt-mcp entry point is a standalone executable installed in
+    # the project venv.  If it isn't present (e.g. the user hasn't created the
+    # venv yet), MCP_DBT_SERVER falls back to the custom Python script.
+    _dbt_is_official = not MCP_DBT_SERVER.endswith("dbt_server.py")
+    _dbt_cmd = MCP_DBT_SERVER if _dbt_is_official else PYTHON_EXECUTABLE
+    _dbt_args = [] if _dbt_is_official else [MCP_DBT_SERVER]
+
     mcp_server_config = {
         "duckdb": {
             "command": PYTHON_EXECUTABLE,
@@ -351,8 +360,8 @@ async def run_pipeline(task: str) -> dict[str, Any]:
             "env": {**os.environ, "DUCKDB_PATH": DUCKDB_PATH},
         },
         "dbt": {
-            "command": PYTHON_EXECUTABLE,
-            "args": [MCP_DBT_SERVER],
+            "command": _dbt_cmd,
+            "args": _dbt_args,
             "transport": "stdio",
             "env": {
                 **os.environ,

@@ -1,39 +1,39 @@
 {
-  "_comment": "MCP server configuration for the Agentic AI Data Management system. This file documents the two MCP servers used as the integration layer between agents and external tools. The orchestrator (orchestrator/graph.py) reads equivalent settings at runtime via environment variables and config.py.",
+  "_comment": "MCP server configuration for the Agentic AI Data Management system.",
   "mcpServers": {
     "duckdb": {
       "command": "python",
       "args": ["mcp_servers/duckdb_server.py"],
       "transport": "stdio",
-      "description": "Read-only DuckDB data warehouse access. Exposes: duckdb_list_tables, duckdb_describe_table, duckdb_query (SELECT only), duckdb_get_table_sample.",
+      "description": "Custom read-only DuckDB server (mcp.server.fastmcp). Exposes: duckdb_list_tables, duckdb_describe_table, duckdb_query (SELECT only), duckdb_get_table_sample. Used in preference to the official mcp-server-duckdb which only exposes a single generic 'query' tool.",
       "env": {
         "DUCKDB_PATH": "data/warehouse.duckdb"
       },
       "agent_permissions": {
-        "planner": ["duckdb_list_tables", "duckdb_describe_table"],
-        "data_profile_worker": ["duckdb_list_tables", "duckdb_describe_table", "duckdb_query", "duckdb_get_table_sample"],
-        "metadata_worker": [],
-        "data_modeling_worker": ["duckdb_list_tables", "duckdb_describe_table", "duckdb_query"],
-        "data_quality_worker": [],
-        "semantical_worker": ["duckdb_list_tables", "duckdb_describe_table", "duckdb_query"]
+        "planner":               ["duckdb_list_tables", "duckdb_describe_table"],
+        "data_profile_worker":   ["duckdb_list_tables", "duckdb_describe_table", "duckdb_query", "duckdb_get_table_sample"],
+        "metadata_worker":       [],
+        "data_modeling_worker":  ["duckdb_list_tables", "duckdb_describe_table", "duckdb_query"],
+        "data_quality_worker":   [],
+        "semantical_worker":     ["duckdb_list_tables", "duckdb_describe_table", "duckdb_query"]
       }
     },
     "dbt": {
-      "command": "python",
-      "args": ["mcp_servers/dbt_server.py"],
+      "command": ".venv/Scripts/dbt-mcp",
+      "args": [],
       "transport": "stdio",
-      "description": "dbt CLI command execution. Exposes: dbt_run, dbt_test, dbt_docs_generate, dbt_ls.",
+      "description": "Official dbt-mcp server (dbt Labs). Requires Python >=3.12 and is installed alongside dbt-core and dbt-duckdb in the project venv so CLI commands have access to the dbt installation. Falls back to mcp_servers/dbt_server.py if the venv entry point is absent.",
       "env": {
         "DBT_PROJECT_DIR": "agentic_dbt_project",
         "DBT_PROFILES_DIR": "profiles"
       },
       "agent_permissions": {
-        "planner": [],
-        "data_profile_worker": [],
-        "metadata_worker": ["dbt_docs_generate", "dbt_ls"],
-        "data_modeling_worker": ["dbt_run", "dbt_ls"],
-        "data_quality_worker": ["dbt_test", "dbt_ls"],
-        "semantical_worker": ["dbt_run", "dbt_docs_generate", "dbt_ls"]
+        "planner":               ["list", "get_all_models", "get_all_sources", "get_lineage"],
+        "data_profile_worker":   [],
+        "metadata_worker":       ["docs", "list", "get_all_models", "get_model_details", "get_all_sources", "get_source_details"],
+        "data_modeling_worker":  ["run", "list", "compile"],
+        "data_quality_worker":   ["test", "list", "get_test_details"],
+        "semantical_worker":     ["run", "docs", "list", "get_all_models", "get_semantic_model_details", "list_metrics", "list_saved_queries"]
       }
     }
   }

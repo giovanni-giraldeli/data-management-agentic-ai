@@ -31,8 +31,10 @@ Constraints:
 """
 
 DATA_QUALITY_MCP_TOOLS: list[str] = [
-    "dbt_test",
-    "dbt_ls",
+    # Official dbt-mcp tool names
+    "test",   # dbt test
+    "list",   # dbt ls
+    "get_test_details",
 ]
 
 DATA_QUALITY_FS_WRITE_EXTENSIONS: list[str] = [".yml"]

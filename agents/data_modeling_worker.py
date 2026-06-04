@@ -67,11 +67,14 @@ Constraints:
 """
 
 DATA_MODELING_MCP_TOOLS: list[str] = [
+    # DuckDB
     "duckdb_list_tables",
     "duckdb_describe_table",
     "duckdb_query",
-    "dbt_run",
-    "dbt_ls",
+    # Official dbt-mcp tool names
+    "run",   # dbt run
+    "list",  # dbt ls
+    "compile",
 ]
 
 DATA_MODELING_FS_WRITE_EXTENSIONS: list[str] = [".sql"]

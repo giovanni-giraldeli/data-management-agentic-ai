@@ -36,12 +36,18 @@ Constraints:
 """
 
 SEMANTICAL_MCP_TOOLS: list[str] = [
+    # DuckDB
     "duckdb_list_tables",
     "duckdb_describe_table",
     "duckdb_query",
-    "dbt_run",
-    "dbt_docs_generate",
-    "dbt_ls",
+    # Official dbt-mcp tool names
+    "run",            # dbt run
+    "docs",           # dbt docs generate
+    "list",           # dbt ls
+    "get_all_models",
+    "get_semantic_model_details",
+    "list_metrics",
+    "list_saved_queries",
 ]
 
 SEMANTICAL_FS_WRITE_EXTENSIONS: list[str] = [".yml", ".md", ".sql"]

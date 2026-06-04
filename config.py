@@ -37,4 +37,15 @@ AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", str(BASE_DIR / "audit_trail.js
 # ---------------------------------------------------------------------------
 PYTHON_EXECUTABLE: str = sys.executable
 MCP_DUCKDB_SERVER: str = str(BASE_DIR / "mcp_servers" / "duckdb_server.py")
-MCP_DBT_SERVER: str = str(BASE_DIR / "mcp_servers" / "dbt_server.py")
+
+# dbt MCP server – uses the official dbt-mcp package (requires Python >=3.12).
+# The entry-point script is resolved from the active venv so that dbt-core and
+# dbt-duckdb are available in the same environment.
+_venv_scripts = BASE_DIR / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")
+MCP_DBT_SERVER_SCRIPT: str = str(_venv_scripts / ("dbt-mcp.exe" if sys.platform == "win32" else "dbt-mcp"))
+# Fall back to the custom Python server if the official entry point is absent
+MCP_DBT_SERVER: str = (
+    MCP_DBT_SERVER_SCRIPT
+    if Path(MCP_DBT_SERVER_SCRIPT).exists()
+    else str(BASE_DIR / "mcp_servers" / "dbt_server.py")
+)

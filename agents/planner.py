@@ -41,8 +41,14 @@ When routing, output a JSON block with keys:
 # MCP tool names this agent is allowed to use (subset of what the servers expose).
 # The orchestrator uses this list to filter the full tool catalogue.
 PLANNER_MCP_TOOLS: list[str] = [
+    # DuckDB – metadata only, no row queries
     "duckdb_list_tables",
     "duckdb_describe_table",
+    # dbt – read-only discovery tools from the official dbt-mcp server
+    "get_all_models",
+    "get_all_sources",
+    "get_lineage",
+    "list",
 ]
 
 # File-system write extensions: empty means no write access.

@@ -29,8 +29,13 @@ Constraints:
 """
 
 METADATA_MCP_TOOLS: list[str] = [
-    "dbt_docs_generate",
-    "dbt_ls",
+    # Official dbt-mcp tool names
+    "docs",           # dbt docs generate
+    "list",           # dbt ls
+    "get_all_models",
+    "get_model_details",
+    "get_all_sources",
+    "get_source_details",
 ]
 
 METADATA_FS_WRITE_EXTENSIONS: list[str] = [".yml"]

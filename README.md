@@ -44,20 +44,24 @@ Each agent has strictly scoped tool access (principle of least privilege, thesis
 
 ### 1. Install dependencies
 
+Python **3.12 or 3.13** is required (`dbt-mcp` constraint). If you use [`uv`](https://docs.astral.sh/uv/) (recommended), it reads `.python-version` automatically:
+
 ```bash
-# Create and activate a virtual environment (recommended)
-python -m venv .venv
+# Create a Python 3.13 venv and install everything in one step
+uv venv --python 3.13 .venv
+uv pip install -r requirements.txt
+
+# Activate the venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# Install core requirements
-pip install -r requirements.txt
-
 # Install exactly ONE LLM provider package, e.g.:
-pip install langchain-openai      # for OpenAI / Azure
-# pip install langchain-anthropic # for Anthropic Claude
-# pip install langchain-google-genai  # for Google Gemini
-# pip install langchain-ollama    # for local Ollama models
+uv pip install langchain-openai      # for OpenAI / Azure
+# uv pip install langchain-anthropic # for Anthropic Claude
+# uv pip install langchain-google-genai  # for Google Gemini
+# uv pip install langchain-ollama    # for local Ollama models
 ```
+
+> **Without uv:** `python3.13 -m venv .venv && pip install -r requirements.txt` works the same way.
 
 ### 2. Configure the LLM provider
 
