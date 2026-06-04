@@ -1,6 +1,8 @@
-"""LangGraph callbacks that produce a structured JSON audit trail.
+"""LangGraph callbacks that produce a structured JSON Lines audit trail.
 
-Every agent interaction is appended to a JSON array file.  Each entry records:
+Every agent interaction is appended to ``audit_trail.jsonl`` (one JSON object
+per line).  Each entry records:
+
   - timestamp      : UTC ISO-8601
   - agent_id       : which agent produced this event
   - event_type     : one of llm_start | llm_end | tool_start | tool_end |
@@ -10,13 +12,17 @@ Every agent interaction is appended to a JSON array file.  Each entry records:
   - tool_name      : present on tool_start / tool_end events
   - tool_input     : present on tool_start events
   - tool_output    : present on tool_end events
+
+JSON Lines format (one entry per line) is used instead of a JSON array so that
+concurrent agent callbacks can append safely without reading the whole file
+first.  The threading lock prevents interleaved writes within one process.
 """
 
 import json
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -24,32 +30,34 @@ from langchain_core.outputs import LLMResult
 
 
 class AuditTrailCallback(BaseCallbackHandler):
-    """Thread-safe callback handler that appends entries to a JSON array file."""
+    """Thread-safe callback handler that appends entries to a JSON Lines file.
+
+    Each call to ``_append`` acquires a process-level lock, serialises the
+    entry to a single JSON line, and appends it.  No file-seek or full-read
+    is required, making it safe for concurrent workers.
+    """
+
+    # Class-level lock shared across all instances so that agents running in
+    # parallel threads cannot interleave their writes to the same file.
+    _file_lock: threading.Lock = threading.Lock()
 
     def __init__(self, log_path: str, agent_id: str) -> None:
         super().__init__()
         self.log_path = Path(log_path)
         self.agent_id = agent_id
-        self._lock = threading.Lock()
-        # Ensure the file exists and is a valid JSON array
-        if not self.log_path.exists() or self.log_path.stat().st_size == 0:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            self.log_path.write_text("[]", encoding="utf-8")
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Internal helper
     # ------------------------------------------------------------------
 
     def _append(self, entry: Dict[str, Any]) -> None:
         entry["timestamp"] = datetime.now(timezone.utc).isoformat()
         entry["agent_id"] = self.agent_id
-        with self._lock:
-            try:
-                log: list = json.loads(self.log_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, FileNotFoundError):
-                log = []
-            log.append(entry)
-            self.log_path.write_text(json.dumps(log, indent=2, default=str), encoding="utf-8")
+        line = json.dumps(entry, default=str)
+        with self._file_lock:
+            with self.log_path.open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
 
     # ------------------------------------------------------------------
     # LLM events

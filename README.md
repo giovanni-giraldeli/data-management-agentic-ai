@@ -44,7 +44,7 @@ Each agent has strictly scoped tool access (principle of least privilege, thesis
 
 ### 1. Install dependencies
 
-Python **3.12 or 3.13** is required (`dbt-mcp` constraint). If you use [`uv`](https://docs.astral.sh/uv/) (recommended), it reads `.python-version` automatically:
+Python **3.12 or 3.13** is required (`dbt-mcp` constraint). The `.python-version` file pins the project to **3.13** (the tested version); 3.12 is the minimum but is not routinely tested. If you use [`uv`](https://docs.astral.sh/uv/) (recommended), it reads `.python-version` automatically:
 
 ```bash
 # Create a Python 3.13 venv and install everything in one step
@@ -128,16 +128,10 @@ The pipeline will:
 
 ## Audit trail
 
-All agent interactions are appended to `audit_trail.json` (path configurable via `AUDIT_LOG_PATH`). Each entry has the following structure:
+All agent interactions are appended to `audit_trail.jsonl` (path configurable via `AUDIT_LOG_PATH`). The file uses **JSON Lines** format — one JSON object per line — which is append-safe under concurrent agent execution. Each entry has the following structure:
 
-```json
-{
-  "timestamp": "2026-01-01T12:00:00.000000+00:00",
-  "agent_id": "data_modeling_worker",
-  "event_type": "tool_start",
-  "tool_name": "run",
-  "tool_input": "{\"model_selector\": \"dim_customers\"}"
-}
+```jsonl
+{"timestamp": "2026-01-01T12:00:00.000000+00:00", "agent_id": "data_modeling_worker", "event_type": "tool_start", "tool_name": "run", "tool_input": "{\"model_selector\": \"dim_customers\"}"}
 ```
 
 `event_type` values: `llm_start`, `llm_end`, `tool_start`, `tool_end`, `chain_start`, `chain_end`, `llm_error`, `tool_error`.

@@ -23,11 +23,19 @@ File-system write tools are further scoped by extension via ``make_write_tool``.
 Audit trail
 -----------
 Every agent invocation passes an ``AuditTrailCallback`` configured with the
-agent's identifier.  All events are appended to a single JSON log file.
+agent's identifier.  All events are appended to a single JSON Lines log file.
+
+Routing safeguards
+------------------
+The graph is compiled with ``recursion_limit=MAX_GRAPH_ITERATIONS`` to prevent
+infinite Planner↔worker loops if the LLM fails to converge.  The MCP server
+startup is wrapped in ``asyncio.wait_for`` with ``MCP_STARTUP_TIMEOUT`` seconds
+so a missing venv or bad path fails fast instead of hanging.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -97,6 +105,18 @@ from agents.semantical_worker import (
     SEMANTICAL_MCP_TOOLS,
     SEMANTICAL_SYSTEM_PROMPT,
 )
+
+# ---------------------------------------------------------------------------
+# Safeguard constants
+# ---------------------------------------------------------------------------
+
+# Maximum number of graph steps before LangGraph raises GraphRecursionError.
+# Each Planner→Worker→Planner round trip costs 2 steps; 50 allows ~25 full
+# worker dispatches before the pipeline is forcibly terminated.
+MAX_GRAPH_ITERATIONS: int = int(os.getenv("MAX_GRAPH_ITERATIONS", "50"))
+
+# Seconds to wait for both MCP servers to finish starting up.
+MCP_STARTUP_TIMEOUT: float = float(os.getenv("MCP_STARTUP_TIMEOUT", "30"))
 
 # ---------------------------------------------------------------------------
 # Graph state
@@ -323,7 +343,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     for worker in _WORKER_NAMES:
         graph.add_edge(worker, "planner")
 
-    return graph.compile()
+    return graph.compile(checkpointer=None)
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +382,17 @@ async def run_pipeline(task: str) -> dict[str, Any]:
         },
     }
 
-    async with MultiServerMCPClient(mcp_server_config) as client:
+    try:
+        mcp_context = MultiServerMCPClient(mcp_server_config)
+        async with asyncio.timeout(MCP_STARTUP_TIMEOUT):
+            client = await mcp_context.__aenter__()
+    except TimeoutError:
+        raise RuntimeError(
+            f"MCP servers did not start within {MCP_STARTUP_TIMEOUT}s. "
+            "Check that the project venv exists and DUCKDB_PATH / DBT_PROJECT_DIR are correct."
+        )
+
+    try:
         mcp_tools: List[BaseTool] = client.get_tools()
         compiled = await build_graph(mcp_tools)
         initial_state: AgentState = {
@@ -370,5 +400,10 @@ async def run_pipeline(task: str) -> dict[str, Any]:
             "next_worker": "",
             "current_task": task,
         }
-        result = await compiled.ainvoke(initial_state)
+        result = await compiled.ainvoke(
+            initial_state,
+            {"recursion_limit": MAX_GRAPH_ITERATIONS},
+        )
         return result
+    finally:
+        await mcp_context.__aexit__(None, None, None)

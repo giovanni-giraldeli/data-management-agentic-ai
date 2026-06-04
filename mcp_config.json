@@ -1,5 +1,5 @@
 {
-  "_comment": "MCP server configuration for the Agentic AI Data Management system.",
+  "_comment": "Reference only — not loaded programmatically by the pipeline. Documents the two MCP server configurations and per-agent tool permissions for human review. The orchestrator (orchestrator/graph.py) builds the equivalent config at runtime from environment variables and config.py.",
   "mcpServers": {
     "duckdb": {
       "command": "python",

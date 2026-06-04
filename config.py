@@ -30,7 +30,7 @@ DBT_PROFILES_DIR: str = os.getenv("DBT_PROFILES_DIR", str(BASE_DIR / "profiles")
 # ---------------------------------------------------------------------------
 # Audit trail
 # ---------------------------------------------------------------------------
-AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", str(BASE_DIR / "audit_trail.json"))
+AUDIT_LOG_PATH: str = os.getenv("AUDIT_LOG_PATH", str(BASE_DIR / "audit_trail.jsonl"))
 
 # ---------------------------------------------------------------------------
 # MCP server entry points (absolute paths so subprocesses can find them)

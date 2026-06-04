@@ -80,19 +80,36 @@ def duckdb_describe_table(table_name: str) -> str:
         return f"ERROR: {exc}"
 
 
+def _is_select(sql: str) -> bool:
+    """Return True only if *sql* is a SELECT or WITH…SELECT statement.
+
+    Strips leading whitespace and single-line SQL comments (``-- …``) before
+    checking, so ``  -- comment\\nSELECT 1`` is accepted but
+    ``  -- comment\\nDROP TABLE x`` is not.
+
+    The primary enforcement layer is the ``read_only=True`` DuckDB connection;
+    this check provides early, descriptive feedback to the agent.
+    """
+    import re
+    # Remove leading SQL line comments and blank lines
+    cleaned = re.sub(r"(--[^\n]*\n?|\s+)", " ", sql).strip().upper()
+    return cleaned.startswith("SELECT") or cleaned.startswith("WITH")
+
+
 @mcp.tool()
 def duckdb_query(sql: str) -> str:
     """Execute a read-only SQL query and return the result as a table.
 
-    Only SELECT statements are permitted.  The result is truncated to 500 rows.
+    Only SELECT (and WITH … SELECT) statements are permitted.  The connection
+    is opened in ``read_only=True`` mode, so write operations are blocked at
+    the database level regardless.  The result is truncated to 500 rows.
 
     Parameters
     ----------
     sql:
         A valid SELECT statement.
     """
-    stripped = sql.strip().upper()
-    if not stripped.startswith("SELECT") and not stripped.startswith("WITH"):
+    if not _is_select(sql):
         return "ERROR: Only SELECT (and WITH … SELECT) queries are permitted."
     try:
         conn = _connect()
