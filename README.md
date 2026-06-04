@@ -135,7 +135,7 @@ All agent interactions are appended to `audit_trail.json` (path configurable via
   "timestamp": "2026-01-01T12:00:00.000000+00:00",
   "agent_id": "data_modeling_worker",
   "event_type": "tool_start",
-  "tool_name": "dbt_run",
+  "tool_name": "run",
   "tool_input": "{\"model_selector\": \"dim_customers\"}"
 }
 ```
@@ -157,8 +157,7 @@ All agent interactions are appended to `audit_trail.json` (path configurable via
 ├── audit/
 │   └── callbacks.py         # LangGraph BaseCallbackHandler → audit_trail.json
 ├── mcp_servers/
-│   ├── duckdb_server.py     # DuckDB MCP server (FastMCP, SELECT-only)
-│   └── dbt_server.py        # dbt MCP server (FastMCP, scoped CLI commands)
+│   └── duckdb_server.py     # Custom DuckDB MCP server (FastMCP, SELECT-only)
 ├── orchestrator/
 │   └── graph.py             # LangGraph StateGraph, supervisor routing logic
 ├── tools/

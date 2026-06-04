@@ -22,7 +22,7 @@
       "command": ".venv/Scripts/dbt-mcp",
       "args": [],
       "transport": "stdio",
-      "description": "Official dbt-mcp server (dbt Labs). Requires Python >=3.12 and is installed alongside dbt-core and dbt-duckdb in the project venv so CLI commands have access to the dbt installation. Falls back to mcp_servers/dbt_server.py if the venv entry point is absent.",
+      "description": "Official dbt-mcp server (dbt Labs). Requires Python >=3.12 and is installed alongside dbt-core and dbt-duckdb in the project venv so CLI commands have access to the dbt installation.",
       "env": {
         "DBT_PROJECT_DIR": "agentic_dbt_project",
         "DBT_PROFILES_DIR": "profiles"
