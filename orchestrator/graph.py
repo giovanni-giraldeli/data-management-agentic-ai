@@ -73,6 +73,7 @@ from config import (
     LLM_TEMPERATURE,
     MCP_DBT_SERVER,
     MCP_DUCKDB_SERVER,
+    PLANNER_MAX_STEPS,
     PYTHON_EXECUTABLE,  # used by the DuckDB MCP server launch
 )
 from audit.callbacks import AuditTrailCallback
@@ -283,11 +284,35 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
 
     async def planner_node(state: AgentState, config: RunnableConfig) -> dict:
         cb = _make_callback("planner", session_id)
-        cfg = {**config, "callbacks": [cb]}
-        result = await planner_agent.ainvoke(
-            {"messages": state["messages"]}, cfg
-        )
-        last_msg: AIMessage = result["messages"][-1]
+        # Override the outer graph's recursion_limit so the Planner's inner
+        # ReAct agent cannot spin indefinitely.  Each tool call costs 2 steps
+        # (one LLM step + one tool-execution step), so PLANNER_MAX_STEPS=25
+        # allows ~12 tool calls before GraphRecursionError is raised.
+        cfg = {**config, "callbacks": [cb], "recursion_limit": PLANNER_MAX_STEPS}
+        try:
+            result = await planner_agent.ainvoke(
+                {"messages": state["messages"]}, cfg
+            )
+            last_msg: AIMessage = result["messages"][-1]
+        except Exception as exc:
+            # GraphRecursionError (or any unexpected error) from the inner agent:
+            # produce a FINISH so the outer graph terminates cleanly rather than
+            # crashing.  The error is surfaced in the final summary.
+            if "recursion" in type(exc).__name__.lower() or "recursion" in str(exc).lower():
+                reason = (
+                    "The Planner exceeded its exploration budget without reaching a "
+                    "decision. This usually means the project has no dbt models yet "
+                    "(dbt list returned 'OK') and the Planner kept searching instead "
+                    "of delegating. Re-run with a more specific task or check the "
+                    "dbt project structure."
+                )
+            else:
+                reason = f"Unexpected Planner error: {exc}"
+            last_msg = AIMessage(content=json.dumps({
+                "reasoning": reason,
+                "next_worker": "FINISH",
+                "task": reason,
+            }))
         decision = _extract_planner_decision(str(last_msg.content))
         return {
             "messages": [last_msg],

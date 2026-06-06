@@ -28,6 +28,14 @@ LLM_MAX_TOKENS: int | None = int(_max_tokens_env) if _max_tokens_env.strip() != 
 # Examples: Gemini AI Studio free tier = 15, paid tier = 2000, 0 = unlimited.
 LLM_RPM_LIMIT: int = int(os.getenv("LLM_RPM_LIMIT", "0"))
 
+# Hard cap on the number of LangGraph steps the Planner's inner ReAct agent
+# may take per invocation.  Each tool call costs 2 steps (one LLM step + one
+# tool-execution step), so the default of 25 allows ~12 tool calls before
+# LangGraph raises GraphRecursionError and the Planner node falls back to a
+# FINISH decision.  Raise this only if the Planner legitimately needs more
+# exploration on very large projects.
+PLANNER_MAX_STEPS: int = int(os.getenv("PLANNER_MAX_STEPS", "25"))
+
 # ---------------------------------------------------------------------------
 # DuckDB
 # ---------------------------------------------------------------------------
