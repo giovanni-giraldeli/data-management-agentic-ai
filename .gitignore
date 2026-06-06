@@ -3,6 +3,15 @@
 __pycache__/
 *.pyc
 .env
+*.egg-info/
+
+# audit trail (generated at runtime)
+audit_trail.json
+
+# data directory (source files are external)
+data/*.duckdb
+data/*.parquet
+data/*.csv
 
 # dbt
 agentic_dbt_project/target/
