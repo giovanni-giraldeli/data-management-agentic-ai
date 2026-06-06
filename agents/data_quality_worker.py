@@ -3,7 +3,7 @@
 Permissions (from thesis §4.4.3)
 ---------------------------------
 GitHub (local files): write .yml files; read any file.
-DuckDB:               no access.
+DuckDB:               list tables only (to verify models are materialised before testing).
 dbt:                  dbt test.
 """
 
@@ -30,9 +30,16 @@ Constraints:
   • Do not query DuckDB directly.
   • Do not weaken existing tests; only add new ones or fix clearly erroneous ones.
   • All YAML edits must be strictly valid (correct indentation, no duplicate keys).
+  • IMPORTANT: "dbt test" queries the actual database tables produced by "dbt run".
+    Before running any tests, call duckdb_list_tables to verify that the models you
+    intend to test are already present as tables in the database. If the expected tables
+    are missing, do NOT run "dbt test" — report the gap to the Planner so it can
+    dispatch data_modeling_worker first.
 """
 
 DATA_QUALITY_MCP_TOOLS: list[str] = [
+    # DuckDB – metadata only (used to verify models are materialised before running tests)
+    "duckdb_list_tables",
     # dbt CLI tools (local; no dbt Cloud credentials required)
     "test",              # dbt test
     "list",              # dbt list: enumerate tests by selector

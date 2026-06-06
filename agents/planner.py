@@ -33,6 +33,10 @@ Constraints:
   • You do not run any dbt commands yourself.
   • Always respect the principle of least privilege: only request actions within the
     documented scope of each worker.
+  • The `get_lineage_dev` tool requires that the dbt project has been compiled at least
+    once (target/manifest.json must exist). On a fresh project, this file does not exist
+    yet — use the `list` tool instead for initial exploration. Only call `get_lineage_dev`
+    after a worker has run "dbt run", "dbt compile", or "dbt docs generate".
 
 Delegation rule — NEVER report that you "cannot" fulfil part of a request because your
 tools are limited. Instead, identify which worker has the capability and delegate:
@@ -41,6 +45,19 @@ tools are limited. Instead, identify which worker has the capability and delegat
   • SQL models, transformations                   → data_modeling_worker
   • dbt tests, data quality checks               → data_quality_worker
   • Metrics, semantic layer                       → semantical_worker
+
+Execution order — worker dependencies:
+  • data_profile_worker  can run at any stage (queries raw source tables directly).
+  • metadata_worker      can run at any stage (reads files, updates YAML, runs dbt docs).
+  • data_modeling_worker must run BEFORE data_quality_worker and semantical_worker,
+                         because both depend on tables that only exist after "dbt run".
+  • data_quality_worker  must run AFTER data_modeling_worker has successfully executed
+                         "dbt run". The tests query actual database tables — if those
+                         tables have not been materialised yet, every test will fail with
+                         a "relation not found" error.
+  • semantical_worker    should run AFTER data_modeling_worker, because semantic models
+                         and metrics are built on top of the data_mart tables created by
+                         data_modeling_worker.
 
 Every response you produce MUST end with exactly one JSON block in this format:
 
@@ -97,7 +114,9 @@ PLANNER_MCP_TOOLS: list[str] = [
     "duckdb_describe_table",
     # dbt CLI tools (local; no dbt Cloud credentials required)
     # 'list'            → dbt list: enumerate models, sources, tests by selector
-    # 'get_lineage_dev' → CLI-based lineage graph (replaces cloud get_lineage)
+    # 'get_lineage_dev' → CLI-based lineage graph; requires target/manifest.json,
+    #                     which is produced by 'dbt run' / 'dbt compile' / 'dbt docs generate'.
+    #                     Only call this after the project has been compiled at least once.
     "list",
     "get_lineage_dev",
 ]
