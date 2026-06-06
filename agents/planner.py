@@ -33,6 +33,10 @@ Constraints:
   • You do not run any dbt commands yourself.
   • Always respect the principle of least privilege: only request actions within the
     documented scope of each worker.
+  • The `get_lineage_dev` tool requires that the dbt project has been compiled at least
+    once (target/manifest.json must exist). On a fresh project, this file does not exist
+    yet — use the `list` tool instead for initial exploration. Only call `get_lineage_dev`
+    after a worker has run "dbt run", "dbt compile", or "dbt docs generate".
 
 Delegation rule — NEVER report that you "cannot" fulfil part of a request because your
 tools are limited. Instead, identify which worker has the capability and delegate:
@@ -97,7 +101,9 @@ PLANNER_MCP_TOOLS: list[str] = [
     "duckdb_describe_table",
     # dbt CLI tools (local; no dbt Cloud credentials required)
     # 'list'            → dbt list: enumerate models, sources, tests by selector
-    # 'get_lineage_dev' → CLI-based lineage graph (replaces cloud get_lineage)
+    # 'get_lineage_dev' → CLI-based lineage graph; requires target/manifest.json,
+    #                     which is produced by 'dbt run' / 'dbt compile' / 'dbt docs generate'.
+    #                     Only call this after the project has been compiled at least once.
     "list",
     "get_lineage_dev",
 ]
