@@ -209,7 +209,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     """
     # LangChain 1.x requires model_provider to be passed explicitly rather
     # than inferred from a "provider/model" string.  Split on "/" so both
-    # formats work: "google_genai/gemini-2.5-flash-preview-05-20" (recommended)
+    # formats work: "google_genai/gemini-2.5-flash" (recommended)
     # and bare model names like "gpt-4o" (provider inferred by LangChain).
     if "/" in LLM_MODEL:
         _provider, _model_name = LLM_MODEL.split("/", 1)
