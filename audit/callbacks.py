@@ -3,13 +3,17 @@
 Every agent interaction is appended to ``audit_trail.jsonl`` (one JSON object
 per line).  Each entry records:
 
+  Fields present on every entry (in this order):
   - session_id     : UUID generated once per pipeline run; groups all entries
                      from the same invocation so multiple runs in the same file
                      can be filtered independently
   - timestamp      : UTC ISO-8601
   - agent_id       : which agent produced this event
-  - event_type     : one of llm_start | llm_end | tool_start | tool_end |
-                     llm_error | tool_error
+  - event_type     : one of system_start | llm_start | llm_end | tool_start |
+                     tool_end | llm_error | tool_error
+
+  Event-specific fields:
+  - prompt         : user task string (system_start only)
   - inputs         : prompt strings (llm_start)
   - outputs        : generated text (llm_end)
   - tool_name      : present on tool_start / tool_end events
@@ -60,13 +64,32 @@ class AuditTrailCallback(BaseCallbackHandler):
     # ------------------------------------------------------------------
 
     def _append(self, entry: Dict[str, Any]) -> None:
-        entry["session_id"] = self.session_id
-        entry["timestamp"] = datetime.now(timezone.utc).isoformat()
-        entry["agent_id"] = self.agent_id
-        line = json.dumps(entry, default=str)
+        # Build a new dict so that session_id is always the first key,
+        # followed by timestamp and agent_id, then the event-specific fields.
+        # Python 3.7+ dicts preserve insertion order, so this controls the
+        # key order in the serialised JSON line.
+        ordered: Dict[str, Any] = {
+            "session_id": self.session_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_id": self.agent_id,
+        }
+        ordered.update(entry)
+        line = json.dumps(ordered, default=str)
         with self._file_lock:
             with self.log_path.open("a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
+
+    # ------------------------------------------------------------------
+    # System event (called once per session, before any agent runs)
+    # ------------------------------------------------------------------
+
+    def log_system_start(self, prompt: str) -> None:
+        """Write a system_start entry that records the user's trigger prompt.
+
+        This is the first entry for every session and lets analysts see
+        what task was submitted without having to parse LLM input messages.
+        """
+        self._append({"event_type": "system_start", "prompt": prompt})
 
     # ------------------------------------------------------------------
     # LLM events
