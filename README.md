@@ -52,7 +52,9 @@ uv venv --python 3.13 .venv
 uv pip install -r requirements.txt
 
 # Activate the venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate          # macOS / Linux
+.\.venv\Scripts\Activate.ps1       # Windows PowerShell
+# .venv\Scripts\activate           # Windows cmd
 
 # Install exactly ONE LLM provider package, e.g.:
 uv pip install langchain-google-genai  # for Google Gemini (recommended, free tier)
@@ -61,7 +63,7 @@ uv pip install langchain-google-genai  # for Google Gemini (recommended, free ti
 # uv pip install langchain-ollama      # for local Ollama models
 ```
 
-> **Without uv:** `python3.13 -m venv .venv && pip install -r requirements.txt` works the same way.
+> **Without uv:** `py -3.13 -m venv .venv && pip install -r requirements.txt` works the same way (use `python3.13` on macOS/Linux).
 
 ### 2. Configure the LLM provider
 
@@ -93,7 +95,7 @@ Supported `LLM_MODEL` values (examples):
 
 ★ **Recommended zero-cost option:** Gemini 2.5 Flash — best cost-benefit model for agentic pipelines (strong tool use, structured JSON output, and built-in reasoning). Get a free API key at [aistudio.google.com](https://aistudio.google.com), then `uv pip install langchain-google-genai`.
 
-The system uses `langchain.chat_models.init_chat_model(LLM_MODEL)` — any provider whose LangChain integration package is installed will work without any code changes.
+The system uses LangChain's `init_chat_model` with the `provider/model-name` format — the provider prefix is parsed automatically and passed as `model_provider`. Any provider whose LangChain integration package is installed will work without code changes.
 
 ### 3. Load source data into DuckDB
 
