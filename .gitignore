@@ -7,6 +7,8 @@ __pycache__/
 
 # audit trail (generated at runtime)
 audit_trail.json
+audit_trail.jsonl
+*.jsonl
 
 # data directory (source files are external)
 data/*.duckdb
