@@ -74,21 +74,23 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-# Choose the model (provider/model-name format used by LangChain init_chat_model)
-LLM_MODEL=openai/gpt-4o
-
-# Provide the API key for your chosen provider
-OPENAI_API_KEY=sk-...
+# Zero-cost option: Google Gemini free tier (get key at https://aistudio.google.com)
+LLM_MODEL=google_genai/gemini-2.0-flash
+GOOGLE_API_KEY=AIza...
 ```
 
 Supported `LLM_MODEL` values (examples):
 
-| Provider | LLM_MODEL | Package |
-|---|---|---|
-| OpenAI | `openai/gpt-4o` | `langchain-openai` |
-| Anthropic | `anthropic/claude-3-5-sonnet-20241022` | `langchain-anthropic` |
-| Google GenAI | `google_genai/gemini-1.5-pro` | `langchain-google-genai` |
-| Ollama (local) | `ollama/llama3.1` | `langchain-ollama` |
+| Provider | LLM_MODEL | Package | Cost |
+|---|---|---|---|
+| Google GenAI ★ | `google_genai/gemini-2.0-flash` | `langchain-google-genai` | **Free tier** via [AI Studio](https://aistudio.google.com) |
+| Google GenAI | `google_genai/gemini-1.5-pro` | `langchain-google-genai` | Free tier via AI Studio |
+| Anthropic | `anthropic/claude-3-5-sonnet-20241022` | `langchain-anthropic` | Requires API credits |
+| Anthropic | `anthropic/claude-3-5-haiku-20241022` | `langchain-anthropic` | Requires API credits |
+| OpenAI | `openai/gpt-4o` | `langchain-openai` | Requires API credits |
+| Ollama (local) | `ollama/llama3.1` | `langchain-ollama` | Free, runs locally |
+
+★ **Recommended zero-cost option:** get a free API key at [aistudio.google.com](https://aistudio.google.com), then `uv pip install langchain-google-genai`.
 
 The system uses `langchain.chat_models.init_chat_model(LLM_MODEL)` — any provider whose LangChain integration package is installed will work without any code changes.
 
