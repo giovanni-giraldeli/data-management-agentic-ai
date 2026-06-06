@@ -139,8 +139,16 @@ async def main() -> None:
     print(f"Audit log  : {AUDIT_LOG_PATH}")
     print("=" * 72)
 
+    from datetime import datetime, timezone
+    start_time = datetime.now(timezone.utc)
+    print(f"Started    : {start_time.isoformat(timespec='seconds')}")
+
     result, session_id = await run_pipeline(task)
 
+    end_time = datetime.now(timezone.utc)
+    elapsed = end_time - start_time
+    print(f"\nFinished   : {end_time.isoformat(timespec='seconds')}")
+    print(f"Elapsed    : {int(elapsed.total_seconds())}s")
     print("\n" + "=" * 72)
     print("Pipeline complete.")
     print("=" * 72)
