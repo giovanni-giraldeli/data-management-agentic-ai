@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 from uuid import UUID
 
+# BaseCallbackHandler is deprecated in LangChain 1.x in favour of astream_events,
+# but it has not been removed and continues to function correctly for audit purposes.
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
 
