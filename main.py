@@ -44,7 +44,7 @@ from orchestrator.graph import run_pipeline
 _DEFAULT_TASK = (
     "Inspect the current state of the project and report back. "
     "Specifically: "
-    "(1) List all tables present in the DuckDB warehouse and summarise their row counts and columns. "
+    "(1) List all tables present in the DuckDB warehouse and describe their columns and data types. "
     "(2) List all existing dbt models, sources, and tests defined in the project. "
     "(3) Summarise any data profile reports (.md files) already written under docs/. "
     "Do not create, modify, or delete any files. Only read and report."
