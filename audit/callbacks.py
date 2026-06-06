@@ -6,7 +6,7 @@ per line).  Each entry records:
   - timestamp      : UTC ISO-8601
   - agent_id       : which agent produced this event
   - event_type     : one of llm_start | llm_end | tool_start | tool_end |
-                     chain_start | chain_end | llm_error | tool_error
+                     llm_error | tool_error
   - inputs         : prompt strings (llm_start) or chain inputs (chain_start)
   - outputs        : generated text (llm_end) or chain outputs (chain_end)
   - tool_name      : present on tool_start / tool_end events
@@ -136,25 +136,9 @@ class AuditTrailCallback(BaseCallbackHandler):
     ) -> None:
         self._append({"event_type": "tool_error", "error": str(error)})
 
-    # ------------------------------------------------------------------
-    # Chain events
-    # ------------------------------------------------------------------
-
-    def on_chain_start(
-        self,
-        serialized: Dict[str, Any],
-        inputs: Dict[str, Any],
-        *,
-        run_id: UUID,
-        **kwargs: Any,
-    ) -> None:
-        self._append({"event_type": "chain_start", "inputs": inputs})
-
-    def on_chain_end(
-        self,
-        outputs: Dict[str, Any],
-        *,
-        run_id: UUID,
-        **kwargs: Any,
-    ) -> None:
-        self._append({"event_type": "chain_end", "outputs": outputs})
+    # Chain events are intentionally NOT logged.
+    # In LangGraph 1.x, on_chain_start / on_chain_end fire at every level of the
+    # nested execution hierarchy (outer graph, react-agent sub-graph, each internal
+    # node, tool executor, …).  A single agent invocation produces dozens of chain
+    # events that are not meaningful for audit purposes and inflate the log with
+    # duplicates.  Only LLM and tool events are captured.

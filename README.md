@@ -149,7 +149,9 @@ All agent interactions are appended to `audit_trail.jsonl` (path configurable vi
 {"timestamp": "2026-01-01T12:00:00.000000+00:00", "agent_id": "data_modeling_worker", "event_type": "tool_start", "tool_name": "run", "tool_input": "{\"model_selector\": \"dim_customers\"}"}
 ```
 
-`event_type` values: `llm_start`, `llm_end`, `tool_start`, `tool_end`, `chain_start`, `chain_end`, `llm_error`, `tool_error`.
+`event_type` values: `llm_start`, `llm_end`, `tool_start`, `tool_end`, `llm_error`, `tool_error`.
+
+> Chain events (`chain_start`/`chain_end`) are intentionally excluded — in LangGraph 1.x they fire at every level of the nested graph hierarchy and would produce dozens of duplicate entries per agent invocation.
 
 ---
 

@@ -189,8 +189,16 @@ def _extract_planner_decision(content: str) -> dict:
     # Fallback: look for next_worker key anywhere
     nw_match = re.search(r'"next_worker"\s*:\s*"([^"]+)"', content)
     task_match = re.search(r'"task"\s*:\s*"([^"]+)"', content)
+    raw_nw = nw_match.group(1) if nw_match else "FINISH"
+
+    # Validate: if the LLM returned an unrecognised worker name, default to FINISH
+    # rather than letting an unknown string reach LangGraph's edge mapping (KeyError).
+    _valid = set(get_args(WorkerName))
+    if raw_nw not in _valid:
+        raw_nw = "FINISH"
+
     return {
-        "next_worker": nw_match.group(1) if nw_match else "FINISH",
+        "next_worker": raw_nw,
         "task": task_match.group(1) if task_match else content,
         "reasoning": "",
     }
@@ -327,7 +335,10 @@ async def build_graph(mcp_tools: List[BaseTool]):
     # Routing from planner
     def _route(state: AgentState) -> str:
         nw = state.get("next_worker", "FINISH")
-        return END if nw == "FINISH" else nw
+        # Treat any unrecognised value (e.g. LLM hallucination) as FINISH.
+        if nw not in _WORKER_NAMES:
+            return END
+        return nw
 
     graph.add_conditional_edges(
         "planner",
