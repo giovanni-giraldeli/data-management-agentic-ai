@@ -15,6 +15,13 @@ BASE_DIR = Path(__file__).parent
 # ---------------------------------------------------------------------------
 LLM_MODEL: str = os.getenv("LLM_MODEL", "google_genai/gemini-2.5-flash")
 LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
+# Maximum tokens the LLM may generate per response.  Set a reasonable cap
+# (default 4096) so that providers like OpenRouter do not reserve the model's
+# full theoretical context window against your credit balance upfront.
+# Increase if a worker's output is being truncated; set to 0 to use the
+# provider default (not recommended with OpenRouter free-tier models).
+_max_tokens_env = os.getenv("LLM_MAX_TOKENS", "4096")
+LLM_MAX_TOKENS: int | None = int(_max_tokens_env) if _max_tokens_env.strip() != "0" else None
 
 # ---------------------------------------------------------------------------
 # DuckDB

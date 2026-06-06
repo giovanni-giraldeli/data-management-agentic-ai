@@ -67,6 +67,7 @@ from config import (
     DBT_PROFILES_DIR,
     DBT_PROJECT_DIR,
     DUCKDB_PATH,
+    LLM_MAX_TOKENS,
     LLM_MODEL,
     LLM_TEMPERATURE,
     MCP_DBT_SERVER,
@@ -220,11 +221,14 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # than inferred from a "provider/model" string.  Split on "/" so both
     # formats work: "google_genai/gemini-2.5-flash" (recommended)
     # and bare model names like "gpt-4o" (provider inferred by LangChain).
+    _llm_kwargs: dict = {"temperature": LLM_TEMPERATURE}
+    if LLM_MAX_TOKENS is not None:
+        _llm_kwargs["max_tokens"] = LLM_MAX_TOKENS
     if "/" in LLM_MODEL:
         _provider, _model_name = LLM_MODEL.split("/", 1)
-        llm = init_chat_model(_model_name, model_provider=_provider, temperature=LLM_TEMPERATURE)
+        llm = init_chat_model(_model_name, model_provider=_provider, **_llm_kwargs)
     else:
-        llm = init_chat_model(LLM_MODEL, temperature=LLM_TEMPERATURE)
+        llm = init_chat_model(LLM_MODEL, **_llm_kwargs)
 
     # -----------------------------------------------------------------------
     # Per-agent tool sets
