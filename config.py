@@ -34,7 +34,7 @@ LLM_RPM_LIMIT: int = int(os.getenv("LLM_RPM_LIMIT", "0"))
 # LangGraph raises GraphRecursionError and the Planner node falls back to a
 # FINISH decision.  Raise this only if the Planner legitimately needs more
 # exploration on very large projects.
-PLANNER_MAX_STEPS: int = int(os.getenv("PLANNER_MAX_STEPS", "25"))
+PLANNER_MAX_STEPS: int = int(os.getenv("PLANNER_MAX_STEPS", "40"))
 
 # ---------------------------------------------------------------------------
 # DuckDB
