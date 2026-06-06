@@ -346,7 +346,16 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
             task_msg = HumanMessage(content=state["current_task"])
             result = await worker_agent.ainvoke({"messages": [task_msg]}, cfg)
             last: AIMessage = result["messages"][-1]
-            summary = AIMessage(
+            # Return the worker summary as a HumanMessage, not an AIMessage.
+            # The Planner is a create_react_agent whose conversation history
+            # accumulates across the pipeline: each call sees all prior messages.
+            # If the worker summary were an AIMessage the Planner would see two
+            # consecutive AI turns (its own routing decision + the worker report)
+            # and interpret the worker summary as its own prior response — causing
+            # it to produce an empty completion on the next call.
+            # Using HumanMessage preserves the correct Human→AI alternation:
+            #   Human(task) → AI(plan+delegate) → Human(worker report) → AI(next step)
+            summary = HumanMessage(
                 content=f"[{agent_id}] Task completed.\n\n{last.content}"
             )
             return {
