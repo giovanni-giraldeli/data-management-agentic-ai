@@ -380,6 +380,13 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
     identifies this run's entries in the audit log.
     """
     session_id = str(uuid4())
+
+    # Write the very first audit entry for this session so that the user's
+    # prompt is recorded before any agent activity begins.
+    AuditTrailCallback(
+        log_path=AUDIT_LOG_PATH, agent_id="system", session_id=session_id
+    ).log_system_start(task)
+
     mcp_server_config = {
         "duckdb": {
             "command": PYTHON_EXECUTABLE,

@@ -143,13 +143,28 @@ The pipeline will:
 
 ## Audit trail
 
-All agent interactions are appended to `audit_trail.jsonl` (path configurable via `AUDIT_LOG_PATH`). The file uses **JSON Lines** format — one JSON object per line — which is append-safe under concurrent agent execution. Each entry has the following structure:
+All agent interactions are appended to `audit_trail.jsonl` (path configurable via `AUDIT_LOG_PATH`). The file uses **JSON Lines** format — one JSON object per line — which is append-safe under concurrent agent execution.
+
+Every entry starts with `session_id` as the first field, followed by `timestamp`, `agent_id`, and `event_type`:
 
 ```jsonl
-{"timestamp": "2026-01-01T12:00:00.000000+00:00", "agent_id": "data_modeling_worker", "event_type": "tool_start", "tool_name": "run", "tool_input": "{\"model_selector\": \"dim_customers\"}"}
+{"session_id": "3f2a1b...", "timestamp": "2026-01-01T12:00:00.000000+00:00", "agent_id": "system", "event_type": "system_start", "prompt": "Profile all source tables..."}
+{"session_id": "3f2a1b...", "timestamp": "2026-01-01T12:00:01.000000+00:00", "agent_id": "data_modeling_worker", "event_type": "tool_start", "tool_name": "run", "tool_input": "{\"model_selector\": \"dim_customers\"}"}
 ```
 
-`event_type` values: `llm_start`, `llm_end`, `tool_start`, `tool_end`, `llm_error`, `tool_error`.
+`event_type` values:
+
+| Value | When | Extra fields |
+|---|---|---|
+| `system_start` | Once per session, before any agent runs | `prompt` — the user's task string |
+| `llm_start` | LLM call begins | `inputs` — prompt strings |
+| `llm_end` | LLM call returns | `outputs` — generated text |
+| `tool_start` | Tool call begins | `tool_name`, `tool_input` |
+| `tool_end` | Tool call returns | `tool_output` |
+| `llm_error` | LLM call fails | `error` |
+| `tool_error` | Tool call fails | `error` |
+
+The `session_id` field is a UUID generated once per `python main.py` invocation. Multiple runs append to the same file, so filtering by `session_id` isolates a single pipeline execution. The session ID is also printed to the console at the end of each run.
 
 > Chain events (`chain_start`/`chain_end`) are intentionally excluded — in LangGraph 1.x they fire at every level of the nested graph hierarchy and would produce dozens of duplicate entries per agent invocation.
 
