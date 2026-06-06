@@ -87,15 +87,24 @@ Supported `LLM_MODEL` values (examples):
 |---|---|---|---|
 | Google GenAI ★ | `google_genai/gemini-2.5-flash` | `langchain-google-genai` | **Free tier** via [AI Studio](https://aistudio.google.com) |
 | Google GenAI | `google_genai/gemini-2.0-flash` | `langchain-google-genai` | Free tier via AI Studio |
-| Google GenAI | `google_genai/gemini-1.5-pro` | `langchain-google-genai` | Free tier via AI Studio |
 | Anthropic | `anthropic/claude-3-5-sonnet-20241022` | `langchain-anthropic` | Requires API credits |
 | Anthropic | `anthropic/claude-3-5-haiku-20241022` | `langchain-anthropic` | Requires API credits |
-| OpenAI | `openai/gpt-4o` | `langchain-openai` | Requires API credits |
+| OpenAI | `openai/gpt-4o-mini` | `langchain-openai` | Requires API credits |
+| OpenRouter ★ | `openai/google/gemini-2.0-flash-exp:free` | `langchain-openai` | **Free tier** via [OpenRouter](https://openrouter.ai) |
+| OpenRouter | `openai/google/gemini-2.5-flash` | `langchain-openai` | Paid per token via OpenRouter |
+| OpenRouter | `openai/meta-llama/llama-3.3-70b-instruct:free` | `langchain-openai` | **Free tier** via OpenRouter |
 | Ollama (local) | `ollama/llama3.1` | `langchain-ollama` | Free, runs locally |
 
-★ **Recommended zero-cost option:** Gemini 2.5 Flash — best cost-benefit model for agentic pipelines (strong tool use, structured JSON output, and built-in reasoning). Get a free API key at [aistudio.google.com](https://aistudio.google.com), then `uv pip install langchain-google-genai`.
+★ **Recommended zero-cost option:** Gemini 2.5 Flash via [AI Studio](https://aistudio.google.com) (direct). If the AI Studio free quota is exhausted, switch to **OpenRouter** — it exposes an OpenAI-compatible API and has its own free-tier models.
 
-The system uses LangChain's `init_chat_model` with the `provider/model-name` format — the provider prefix is parsed automatically and passed as `model_provider`. Any provider whose LangChain integration package is installed will work without code changes.
+**Using OpenRouter:** set `LLM_MODEL=openai/<openrouter-model-name>` (the `openai` prefix tells LangChain which client to use), then add two extra keys to `.env`:
+```env
+OPENAI_API_KEY=sk-or-...              # your OpenRouter key
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+```
+`uv pip install langchain-openai` is the only package required.
+
+The system uses LangChain's `init_chat_model` — the provider prefix (`google_genai`, `anthropic`, `openai`, etc.) is split off and passed as `model_provider`. Any provider whose LangChain integration package is installed works without code changes.
 
 ### 3. Load source data into DuckDB
 
