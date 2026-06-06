@@ -31,12 +31,12 @@ Each agent has strictly scoped tool access (principle of least privilege, thesis
 
 | Agent | DuckDB | dbt commands | File writes |
 |---|---|---|---|
-| Planner | list_tables, describe_table | — | none |
+| Planner | list_tables, describe_table | get_all_models, get_all_sources, get_lineage, ls | none |
 | Data Profile Worker | list, describe, query, sample | — | `.md` |
-| Metadata Worker | — | docs generate, ls | `.yml` |
-| Data Modeling Worker | list, describe, query | run, ls | `.sql` |
-| Data Quality Worker | — | test, ls | `.yml` |
-| Semantical Worker | list, describe, query | run, docs generate, ls | `.yml .md .sql` |
+| Metadata Worker | — | docs generate, ls, get_all_models, get_model_details, get_all_sources, get_source_details | `.yml` |
+| Data Modeling Worker | list, describe, query | run, ls, compile | `.sql` |
+| Data Quality Worker | — | test, ls, get_test_details | `.yml` |
+| Semantical Worker | list, describe, query | run, docs generate, ls, get_all_models, get_semantic_model_details, list_metrics, list_saved_queries | `.yml .md .sql` |
 
 ---
 
@@ -55,10 +55,10 @@ uv pip install -r requirements.txt
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 # Install exactly ONE LLM provider package, e.g.:
-uv pip install langchain-openai      # for OpenAI / Azure
-# uv pip install langchain-anthropic # for Anthropic Claude
-# uv pip install langchain-google-genai  # for Google Gemini
-# uv pip install langchain-ollama    # for local Ollama models
+uv pip install langchain-google-genai  # for Google Gemini (recommended, free tier)
+# uv pip install langchain-openai      # for OpenAI / Azure
+# uv pip install langchain-anthropic   # for Anthropic Claude
+# uv pip install langchain-ollama      # for local Ollama models
 ```
 
 > **Without uv:** `python3.13 -m venv .venv && pip install -r requirements.txt` works the same way.
@@ -97,11 +97,12 @@ The system uses `langchain.chat_models.init_chat_model(LLM_MODEL)` — any provi
 
 ### 3. Load source data into DuckDB
 
-Place the source CSV/Parquet files in `data/` and load them into the warehouse. Example for CSV files:
+Set `DUCKDB_PATH` in `.env` to point at your warehouse file (default: `data/warehouse.duckdb`).
+If you are starting from scratch, place the source CSV/Parquet files in `data/` and load them:
 
 ```python
-import duckdb
-conn = duckdb.connect("data/warehouse.duckdb")
+import duckdb, os
+conn = duckdb.connect(os.getenv("DUCKDB_PATH", "data/warehouse.duckdb"))
 conn.execute("CREATE TABLE aspnet_membership AS SELECT * FROM read_csv_auto('data/aspnet_membership.csv')")
 conn.execute("CREATE TABLE aspnet_profile   AS SELECT * FROM read_csv_auto('data/aspnet_profile.csv')")
 conn.execute("CREATE TABLE domain           AS SELECT * FROM read_csv_auto('data/domain.csv')")
@@ -109,23 +110,32 @@ conn.execute("CREATE TABLE domain_group     AS SELECT * FROM read_csv_auto('data
 conn.close()
 ```
 
+If you already have a populated DuckDB file, just set `DUCKDB_PATH` to its path and skip this step.
+
 ### 4. Run the pipeline
 
 ```bash
 python main.py
 ```
 
-Or pass a custom task:
+Or pass a custom task as a plain-text string, a `.txt`/`.md` file, or a **PDF**:
 
 ```bash
-python main.py "Profile the source tables and build a dim_customers model only."
+# Plain-text task
+python main.py "Profile the source tables and produce a data quality report."
+
+# PDF case study (text is extracted automatically with pypdf)
+python main.py path/to/case_study.pdf
+
+# Context note prepended to a PDF (multiple arguments are joined in order)
+python main.py "The source data has been loaded into DuckDB. Implement the requirements below." path/to/case_study.pdf
 ```
 
 The pipeline will:
 1. Start the DuckDB and dbt MCP servers as background processes
 2. Route through the Planner → Workers according to the task
 3. Write dbt model files, YAML documentation, Markdown reports, and semantic layer definitions
-4. Log every agent interaction to `audit_trail.json`
+4. Log every agent interaction to `audit_trail.jsonl`
 
 ---
 
@@ -152,7 +162,7 @@ All agent interactions are appended to `audit_trail.jsonl` (path configurable vi
 │   ├── data_quality_worker.py
 │   └── semantical_worker.py
 ├── audit/
-│   └── callbacks.py         # LangGraph BaseCallbackHandler → audit_trail.json
+│   └── callbacks.py         # LangGraph BaseCallbackHandler → audit_trail.jsonl
 ├── mcp_servers/
 │   └── duckdb_server.py     # Custom DuckDB MCP server (FastMCP, SELECT-only)
 ├── orchestrator/
