@@ -74,8 +74,8 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-# Zero-cost option: Google Gemini free tier (get key at https://aistudio.google.com)
-LLM_MODEL=google_genai/gemini-2.0-flash
+# Zero-cost option: Google Gemini 2.5 Flash free tier (get key at https://aistudio.google.com)
+LLM_MODEL=google_genai/gemini-2.5-flash-preview-05-20
 GOOGLE_API_KEY=AIza...
 ```
 
@@ -83,14 +83,15 @@ Supported `LLM_MODEL` values (examples):
 
 | Provider | LLM_MODEL | Package | Cost |
 |---|---|---|---|
-| Google GenAI ★ | `google_genai/gemini-2.0-flash` | `langchain-google-genai` | **Free tier** via [AI Studio](https://aistudio.google.com) |
+| Google GenAI ★ | `google_genai/gemini-2.5-flash-preview-05-20` | `langchain-google-genai` | **Free tier** via [AI Studio](https://aistudio.google.com) |
+| Google GenAI | `google_genai/gemini-2.0-flash` | `langchain-google-genai` | Free tier via AI Studio |
 | Google GenAI | `google_genai/gemini-1.5-pro` | `langchain-google-genai` | Free tier via AI Studio |
 | Anthropic | `anthropic/claude-3-5-sonnet-20241022` | `langchain-anthropic` | Requires API credits |
 | Anthropic | `anthropic/claude-3-5-haiku-20241022` | `langchain-anthropic` | Requires API credits |
 | OpenAI | `openai/gpt-4o` | `langchain-openai` | Requires API credits |
 | Ollama (local) | `ollama/llama3.1` | `langchain-ollama` | Free, runs locally |
 
-★ **Recommended zero-cost option:** get a free API key at [aistudio.google.com](https://aistudio.google.com), then `uv pip install langchain-google-genai`.
+★ **Recommended zero-cost option:** Gemini 2.5 Flash — best cost-benefit model for agentic pipelines (strong tool use, structured JSON output, and built-in reasoning). Get a free API key at [aistudio.google.com](https://aistudio.google.com), then `uv pip install langchain-google-genai`.
 
 The system uses `langchain.chat_models.init_chat_model(LLM_MODEL)` — any provider whose LangChain integration package is installed will work without any code changes.
 
