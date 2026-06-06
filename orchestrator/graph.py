@@ -29,7 +29,7 @@ Routing safeguards
 ------------------
 The graph is compiled with ``recursion_limit=MAX_GRAPH_ITERATIONS`` to prevent
 infinite Planner↔worker loops if the LLM fails to converge.  The MCP server
-startup is wrapped in ``asyncio.wait_for`` with ``MCP_STARTUP_TIMEOUT`` seconds
+startup is wrapped in ``asyncio.timeout`` with ``MCP_STARTUP_TIMEOUT`` seconds
 so a missing venv or bad path fails fast instead of hanging.
 """
 
@@ -377,28 +377,29 @@ async def run_pipeline(task: str) -> dict[str, Any]:
         },
     }
 
+    # langchain-mcp-adapters >=0.1.0 removed the async context manager API.
+    # The new pattern is: instantiate the client, then await client.get_tools()
+    # which starts the MCP servers and returns bound tool objects.  The client
+    # must remain in scope for the duration of the pipeline run so that the
+    # server connections stay alive when agents call tools.
+    client = MultiServerMCPClient(mcp_server_config)
+
     try:
-        mcp_context = MultiServerMCPClient(mcp_server_config)
         async with asyncio.timeout(MCP_STARTUP_TIMEOUT):
-            client = await mcp_context.__aenter__()
+            mcp_tools: List[BaseTool] = await client.get_tools()
     except TimeoutError:
         raise RuntimeError(
             f"MCP servers did not start within {MCP_STARTUP_TIMEOUT}s. "
             "Check that the project venv exists and DUCKDB_PATH / DBT_PROJECT_DIR are correct."
         )
 
-    try:
-        mcp_tools: List[BaseTool] = client.get_tools()
-        compiled = await build_graph(mcp_tools)
-        initial_state: AgentState = {
-            "messages": [HumanMessage(content=task)],
-            "next_worker": "",
-            "current_task": task,
-        }
-        result = await compiled.ainvoke(
-            initial_state,
-            {"recursion_limit": MAX_GRAPH_ITERATIONS},
-        )
-        return result
-    finally:
-        await mcp_context.__aexit__(None, None, None)
+    compiled = await build_graph(mcp_tools)
+    initial_state: AgentState = {
+        "messages": [HumanMessage(content=task)],
+        "next_worker": "",
+        "current_task": task,
+    }
+    return await compiled.ainvoke(
+        initial_state,
+        {"recursion_limit": MAX_GRAPH_ITERATIONS},
+    )
