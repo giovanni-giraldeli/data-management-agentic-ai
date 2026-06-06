@@ -103,7 +103,15 @@ class AuditTrailCallback(BaseCallbackHandler):
         run_id: UUID,
         **kwargs: Any,
     ) -> None:
-        self._append({"event_type": "llm_start", "inputs": prompts})
+        # Log only the message count, not the full prompt list.
+        # In a ReAct agent every LLM call receives the entire accumulated
+        # conversation history, so logging `prompts` in full causes the audit
+        # file to grow quadratically: each successive entry re-copies the system
+        # prompt plus every prior tool call and result.  The actual content is
+        # already captured by system_start, tool_start, tool_end, and llm_end
+        # events, so storing it again here adds no information and dominates the
+        # log size.  message_count is kept for context-window tracking.
+        self._append({"event_type": "llm_start", "message_count": len(prompts)})
 
     def on_llm_end(
         self,
@@ -155,7 +163,24 @@ class AuditTrailCallback(BaseCallbackHandler):
         run_id: UUID,
         **kwargs: Any,
     ) -> None:
-        self._append({"event_type": "tool_end", "tool_output": str(output)})
+        # `output` is a LangChain ToolMessage object.  str(output) produces a
+        # verbose wrapper including content list, name, tool_call_id, and
+        # artifact fields.  Extract just the plain-text result string so the
+        # audit entry stays compact and human-readable.
+        if hasattr(output, "content"):
+            content = output.content
+            if isinstance(content, list):
+                # content=[{'type': 'text', 'text': '...'}, ...]
+                text = " ".join(
+                    part.get("text", str(part))
+                    for part in content
+                    if isinstance(part, dict)
+                )
+            else:
+                text = str(content)
+        else:
+            text = str(output)
+        self._append({"event_type": "tool_end", "tool_output": text})
 
     def on_tool_error(
         self,
