@@ -20,12 +20,17 @@ dbt-mcp>=1.20.1
 
 # -----------------------------------------------------------------------------
 # LangGraph & LangChain (provider-agnostic core)
-# Upper bounds prevent silent breaking-change upgrades between minor versions.
+# Tested with: langgraph==1.2.4, langchain-core==1.4.1, langchain==1.3.4,
+#              langchain-mcp-adapters==0.2.2
+# Upper bounds prevent silent breaking-change upgrades between major versions.
+# Note: langchain-core/langchain/langgraph all shipped 1.x releases; the
+#       old <1.0 bounds were too tight and caused fresh installs to resolve
+#       incompatible 0.3.x versions that lack langchain_core.messages.content.
 # -----------------------------------------------------------------------------
-langgraph>=0.2.0,<2.0
-langchain-core>=0.3.0,<1.0
-langchain>=0.3.0,<1.0
-langchain-mcp-adapters>=0.1.0,<1.0
+langgraph>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langchain>=1.0,<2.0
+langchain-mcp-adapters>=0.2.0,<1.0
 
 # -----------------------------------------------------------------------------
 # MCP Python SDK (provides mcp.server.fastmcp used by the DuckDB MCP server)
