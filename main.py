@@ -22,9 +22,12 @@ inspect-and-report task is used.
 """
 
 import asyncio
+import json
 import os
+import re
 import sys
 from pathlib import Path
+from typing import Any
 
 # Make sure the repo root is on the path regardless of where this is invoked from
 _REPO_ROOT = Path(__file__).parent
@@ -66,6 +69,48 @@ def _read_task_file(path: Path) -> str:
         return path.read_text(encoding="utf-8").strip()
 
 
+def _extract_final_summary(content: Any) -> str:
+    """Return a clean, human-readable summary from the Planner's final message.
+
+    Handles three content shapes:
+      - Plain string (most providers)
+      - List of content-part dicts, e.g. Gemini thinking output:
+        [{'type': 'text', 'text': '...', 'extras': {'signature': '...'}}]
+      - Any other type (fallback to str())
+
+    Strips the routing JSON block and returns only the 'task' summary text.
+    The 'signature' extra that Gemini 2.5 Flash appends is silently ignored.
+    """
+    # Normalise to a single string
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+            elif isinstance(part, str):
+                parts.append(part)
+        text = "\n".join(parts)
+    else:
+        text = str(content)
+
+    # Try to extract just the 'task' field from the routing JSON block
+    try:
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if not match:
+            match = re.search(r"(\{[^{}]*\"next_worker\"[^{}]*\})", text, re.DOTALL)
+        if match:
+            decision = json.loads(match.group(1))
+            task_text = decision.get("task", "").strip()
+            if task_text:
+                return task_text
+    except Exception:
+        pass
+
+    # Fallback: strip fenced code blocks and return the remaining prose
+    text = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", text, flags=re.DOTALL).strip()
+    return text or "(No summary available.)"
+
+
 def _resolve_arg(arg: str) -> str:
     """Return file contents if *arg* is an existing file path, otherwise return *arg* as-is."""
     candidate = Path(arg)
@@ -94,22 +139,25 @@ async def main() -> None:
     print(f"Audit log  : {AUDIT_LOG_PATH}")
     print("=" * 72)
 
-    result = await run_pipeline(task)
+    result, session_id = await run_pipeline(task)
 
     print("\n" + "=" * 72)
     print("Pipeline complete.")
     print("=" * 72)
 
-    # Print the final planner summary (last AI message)
+    # Print the final planner summary — extract only the human-readable 'task'
+    # field from the FINISH JSON block; strip the routing JSON and any Gemini
+    # internal extras (e.g. the 'signature' field from the thinking API).
     messages = result.get("messages", [])
+    from langchain_core.messages import AIMessage
     for msg in reversed(messages):
-        from langchain_core.messages import AIMessage
         if isinstance(msg, AIMessage):
             print("\nFinal summary:\n")
-            print(msg.content)
+            print(_extract_final_summary(msg.content))
             break
 
-    print(f"\nFull audit trail written to: {AUDIT_LOG_PATH}")
+    print(f"\nSession ID : {session_id}")
+    print(f"Audit log  : {AUDIT_LOG_PATH}")
 
 
 if __name__ == "__main__":

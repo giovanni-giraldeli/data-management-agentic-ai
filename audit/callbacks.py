@@ -3,12 +3,15 @@
 Every agent interaction is appended to ``audit_trail.jsonl`` (one JSON object
 per line).  Each entry records:
 
+  - session_id     : UUID generated once per pipeline run; groups all entries
+                     from the same invocation so multiple runs in the same file
+                     can be filtered independently
   - timestamp      : UTC ISO-8601
   - agent_id       : which agent produced this event
   - event_type     : one of llm_start | llm_end | tool_start | tool_end |
                      llm_error | tool_error
-  - inputs         : prompt strings (llm_start) or chain inputs (chain_start)
-  - outputs        : generated text (llm_end) or chain outputs (chain_end)
+  - inputs         : prompt strings (llm_start)
+  - outputs        : generated text (llm_end)
   - tool_name      : present on tool_start / tool_end events
   - tool_input     : present on tool_start events
   - tool_output    : present on tool_end events
@@ -23,7 +26,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
-from uuid import UUID
+from uuid import UUID, uuid4
 
 # BaseCallbackHandler is deprecated in LangChain 1.x in favour of astream_events,
 # but it has not been removed and continues to function correctly for audit purposes.
@@ -43,10 +46,13 @@ class AuditTrailCallback(BaseCallbackHandler):
     # parallel threads cannot interleave their writes to the same file.
     _file_lock: threading.Lock = threading.Lock()
 
-    def __init__(self, log_path: str, agent_id: str) -> None:
+    def __init__(self, log_path: str, agent_id: str, session_id: str | None = None) -> None:
         super().__init__()
         self.log_path = Path(log_path)
         self.agent_id = agent_id
+        # session_id groups all entries from one pipeline run so that
+        # multiple runs appended to the same file can be queried separately.
+        self.session_id: str = session_id or str(uuid4())
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -54,6 +60,7 @@ class AuditTrailCallback(BaseCallbackHandler):
     # ------------------------------------------------------------------
 
     def _append(self, entry: Dict[str, Any]) -> None:
+        entry["session_id"] = self.session_id
         entry["timestamp"] = datetime.now(timezone.utc).isoformat()
         entry["agent_id"] = self.agent_id
         line = json.dumps(entry, default=str)

@@ -42,6 +42,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Annotated, Any, List, Literal, get_args
+from uuid import uuid4
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -171,8 +172,8 @@ def _build_fs_tools(write_extensions: list[str]) -> List[BaseTool]:
     return tools
 
 
-def _make_callback(agent_id: str) -> AuditTrailCallback:
-    return AuditTrailCallback(log_path=AUDIT_LOG_PATH, agent_id=agent_id)
+def _make_callback(agent_id: str, session_id: str) -> AuditTrailCallback:
+    return AuditTrailCallback(log_path=AUDIT_LOG_PATH, agent_id=agent_id, session_id=session_id)
 
 
 def _extract_planner_decision(content: str) -> dict:
@@ -209,7 +210,7 @@ def _extract_planner_decision(content: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def build_graph(mcp_tools: List[BaseTool]):
+async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     """Construct and return the compiled LangGraph graph.
 
     *mcp_tools* is the full list of tools loaded from the MCP servers.
@@ -264,7 +265,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     )
 
     async def planner_node(state: AgentState, config: RunnableConfig) -> dict:
-        cb = _make_callback("planner")
+        cb = _make_callback("planner", session_id)
         cfg = {**config, "callbacks": [cb]}
         result = await planner_agent.ainvoke(
             {"messages": state["messages"]}, cfg
@@ -285,7 +286,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
         worker_agent = create_react_agent(llm, tools, prompt=system_prompt)
 
         async def worker_node(state: AgentState, config: RunnableConfig) -> dict:
-            cb = _make_callback(agent_id)
+            cb = _make_callback(agent_id, session_id)
             cfg = {**config, "callbacks": [cb]}
             task_msg = HumanMessage(content=state["current_task"])
             result = await worker_agent.ainvoke({"messages": [task_msg]}, cfg)
@@ -365,7 +366,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
 # ---------------------------------------------------------------------------
 
 
-async def run_pipeline(task: str) -> dict[str, Any]:
+async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
     """Start the MCP servers, build the graph, and run the pipeline.
 
     Parameters
@@ -375,8 +376,10 @@ async def run_pipeline(task: str) -> dict[str, Any]:
 
     Returns
     -------
-    The final graph state dictionary.
+    A tuple of (final graph state dict, session_id).  The session_id
+    identifies this run's entries in the audit log.
     """
+    session_id = str(uuid4())
     mcp_server_config = {
         "duckdb": {
             "command": PYTHON_EXECUTABLE,
@@ -412,13 +415,14 @@ async def run_pipeline(task: str) -> dict[str, Any]:
             "Check that the project venv exists and DUCKDB_PATH / DBT_PROJECT_DIR are correct."
         )
 
-    compiled = await build_graph(mcp_tools)
+    compiled = await build_graph(mcp_tools, session_id)
     initial_state: AgentState = {
         "messages": [HumanMessage(content=task)],
         "next_worker": "",
         "current_task": task,
     }
-    return await compiled.ainvoke(
+    final_state = await compiled.ainvoke(
         initial_state,
         {"recursion_limit": MAX_GRAPH_ITERATIONS},
     )
+    return final_state, session_id
