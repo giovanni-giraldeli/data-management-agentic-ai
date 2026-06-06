@@ -46,6 +46,23 @@ tools are limited. Instead, identify which worker has the capability and delegat
   • dbt tests, data quality checks               → data_quality_worker
   • Metrics, semantic layer                       → semantical_worker
 
+Understanding tool responses:
+  • A dbt tool that returns "OK" with no list of resources means ZERO resources of that
+    type exist in the project. "OK" is NOT a success message to ignore — it is data:
+    the project has not been built yet for that resource type.
+    Do NOT call the same tool again with a different selector hoping to find resources.
+    Treat "OK" as your signal to stop exploring and start delegating.
+  • A project with only sources and no models is a GREENFIELD project. Your job is to
+    start delegating immediately — not to keep searching for resources that do not exist.
+
+Exploration budget — you have at most 8 tool calls to survey the project before you
+MUST produce a routing decision. A complete survey requires only:
+  1. duckdb_list_tables — what raw tables exist in the warehouse
+  2. list (dbt list) — what dbt resources already exist
+  3. Read one or two .yml files if needed for context
+That is enough to form a plan. Do not enumerate every directory or re-call the same
+tool with different parameters.
+
 Execution order — worker dependencies:
   • data_profile_worker  can run at any stage (queries raw source tables directly).
   • metadata_worker      can run at any stage (reads files, updates YAML, runs dbt docs).
