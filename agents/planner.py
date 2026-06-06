@@ -56,11 +56,19 @@ Valid values for "next_worker":
   "data_profile_worker" | "metadata_worker" | "data_modeling_worker" |
   "data_quality_worker" | "semantical_worker" | "FINISH"
 
-Use "FINISH" when ALL of the following are true:
-  - Every task required by the user's request has been completed by the appropriate workers.
-  - You have reviewed each worker's result and it meets the requirement.
-  - There is nothing left to delegate.
-When finishing, set "task" to a concise summary of what was accomplished for the user.
+Use "FINISH" only when ALL of the following are true:
+  1. You have gone through every numbered item in the user's request one by one and
+     confirmed each one is fully done — not just started, not just planned.
+  2. You have the actual results in the conversation history (tool outputs, worker
+     summaries) to prove each item is complete.
+  3. There is nothing left to call, delegate, or verify.
+
+NEVER declare FINISH because you ran out of steps or because you have a plan for what
+to do next. "I have listed the tables and now I need to describe them" means the task
+is NOT done — keep going.
+
+When finishing, set "task" to a factual summary of what was actually accomplished
+(results, files created, counts) — not a description of what you intended to do.
 
 Example — routing to a worker:
 ```json
