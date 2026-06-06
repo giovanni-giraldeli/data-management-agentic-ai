@@ -7,14 +7,18 @@ Usage
     python main.py "Custom task description"
     python main.py path/to/task.pdf
     python main.py path/to/task.txt
+    python main.py "Preamble / context note." path/to/task.pdf
 
-The argument can be:
-  - A plain-text task string (passed directly to the pipeline)
-  - A path to a .pdf file  (text is extracted with pypdf)
-  - A path to a .txt or .md file (read as-is)
+Each positional argument is either a plain-text string or a file path
+(.pdf, .txt, .md). All parts are joined in order and sent as a single
+task to the pipeline, so you can prepend context to a PDF spec:
 
-The pipeline task can also be set via the PIPELINE_TASK environment variable.
-If neither is supplied, the default inspect-and-report task is used.
+    python main.py "The AzureSQL DB in the PDF has been migrated to the
+    DuckDB warehouse the system has access to." case_study.pdf
+
+The PIPELINE_TASK environment variable takes precedence over all
+positional arguments. If nothing is supplied, the default
+inspect-and-report task is used.
 """
 
 import asyncio
@@ -62,19 +66,24 @@ def _read_task_file(path: Path) -> str:
         return path.read_text(encoding="utf-8").strip()
 
 
+def _resolve_arg(arg: str) -> str:
+    """Return file contents if *arg* is an existing file path, otherwise return *arg* as-is."""
+    candidate = Path(arg)
+    if candidate.exists() and candidate.is_file():
+        print(f"Reading task from file: {candidate}")
+        return _read_task_file(candidate)
+    return arg
+
+
 async def main() -> None:
-    raw_arg = sys.argv[1] if len(sys.argv) > 1 else None
     env_task = os.getenv("PIPELINE_TASK")
 
     if env_task:
         task = env_task
-    elif raw_arg:
-        candidate = Path(raw_arg)
-        if candidate.exists() and candidate.is_file():
-            print(f"Reading task from file: {candidate}")
-            task = _read_task_file(candidate)
-        else:
-            task = raw_arg
+    elif len(sys.argv) > 1:
+        # Each argument is resolved independently (string or file path) then joined.
+        parts = [_resolve_arg(a) for a in sys.argv[1:]]
+        task = "\n\n".join(p for p in parts if p)
     else:
         task = _DEFAULT_TASK
 
