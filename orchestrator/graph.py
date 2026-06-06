@@ -140,6 +140,7 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     next_worker: str         # set by the planner; drives conditional routing
     current_task: str        # the specific task instruction sent to the active worker
+    plan: list[str]          # the Planner's current execution plan (steps as strings)
 
 
 # ---------------------------------------------------------------------------
@@ -314,10 +315,22 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
                 "task": reason,
             }))
         decision = _extract_planner_decision(str(last_msg.content))
+
+        # Carry the plan forward in state.  The Planner includes "plan" in its
+        # JSON on the first response and whenever it revises the plan; it omits
+        # the field on routine step-by-step execution to save tokens.  We keep
+        # the last known plan so it is always visible in the graph state.
+        updated_plan = decision.get("plan")
+        if isinstance(updated_plan, list) and updated_plan:
+            new_plan = updated_plan
+        else:
+            new_plan = state.get("plan", [])
+
         return {
             "messages": [last_msg],
             "next_worker": decision.get("next_worker", "FINISH"),
             "current_task": decision.get("task", ""),
+            "plan": new_plan,
         }
 
     # -----------------------------------------------------------------------
@@ -475,6 +488,7 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
         "messages": [HumanMessage(content=task)],
         "next_worker": "",
         "current_task": task,
+        "plan": [],  # populated by the Planner on its first response
     }
     final_state = await compiled.ainvoke(
         initial_state,
