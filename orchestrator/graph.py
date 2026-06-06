@@ -252,7 +252,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     planner_agent = create_react_agent(
         llm,
         planner_tools,
-        state_modifier=PLANNER_SYSTEM_PROMPT,
+        prompt=PLANNER_SYSTEM_PROMPT,
     )
 
     async def planner_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -274,7 +274,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     # -----------------------------------------------------------------------
 
     def _make_worker_node(agent_id: str, tools: List[BaseTool], system_prompt: str):
-        worker_agent = create_react_agent(llm, tools, state_modifier=system_prompt)
+        worker_agent = create_react_agent(llm, tools, prompt=system_prompt)
 
         async def worker_node(state: AgentState, config: RunnableConfig) -> dict:
             cb = _make_callback(agent_id)
