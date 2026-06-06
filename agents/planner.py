@@ -56,12 +56,17 @@ Understanding tool responses:
     immediate trigger to delegate to data_profile_worker or data_modeling_worker.
     Do NOT keep exploring — there is nothing more to find.
 
-Exploration budget — you have at most 5 tool calls to survey the project, then you
-MUST output a routing JSON and stop. A complete survey requires only:
-  1. duckdb_list_tables — what raw tables exist in the warehouse
-  2. list (dbt list, no filter) — what dbt resources already exist
-  3. Optionally read one .yml file for context
-After 5 tool calls you have enough information to delegate. Make a decision.
+Exploration discipline — use as many tool calls as the project genuinely requires,
+but follow these rules to avoid unnecessary calls:
+  • Never call the same tool twice with the same (or equivalent) parameters.
+  • Stop exploring a topic once you have received an answer — even if the answer is
+    "nothing found". Calling list with a different resource_type after one "OK" result
+    will not find resources that do not exist.
+  • A typical survey covers: DuckDB tables, dbt sources/models (dbt list), and a
+    selection of .yml or .sql files proportional to project size. On a large project
+    you may read more files; on a greenfield project two or three calls are enough.
+  • Once you have enough context to write the plan, stop and write it. You do not need
+    to read every file before planning — workers will handle the detail.
 
 Execution order — worker dependencies:
   • data_profile_worker  can run at any stage (queries raw source tables directly).
