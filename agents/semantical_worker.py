@@ -38,14 +38,11 @@ SEMANTICAL_MCP_TOOLS: list[str] = [
     "duckdb_list_tables",
     "duckdb_describe_table",
     "duckdb_query",
-    # Official dbt-mcp tool names
-    "run",            # dbt run
-    "docs",           # dbt docs generate
-    "list",           # dbt ls
-    "get_all_models",
-    "get_semantic_model_details",
-    "list_metrics",
-    "list_saved_queries",
+    # dbt CLI tools (local; no dbt Cloud credentials required)
+    "run",               # dbt run
+    "docs",              # dbt docs generate
+    "list",              # dbt list: enumerate models / semantic models
+    "get_node_details_dev",  # CLI-based node details (replaces cloud get_all_models / get_semantic_model_details)
 ]
 
 SEMANTICAL_FS_WRITE_EXTENSIONS: list[str] = [".yml", ".md", ".sql"]

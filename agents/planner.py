@@ -87,11 +87,11 @@ PLANNER_MCP_TOOLS: list[str] = [
     # DuckDB – metadata only, no row queries
     "duckdb_list_tables",
     "duckdb_describe_table",
-    # dbt – read-only discovery tools from the official dbt-mcp server
-    "get_all_models",
-    "get_all_sources",
-    "get_lineage",
+    # dbt CLI tools (local; no dbt Cloud credentials required)
+    # 'list'            → dbt list: enumerate models, sources, tests by selector
+    # 'get_lineage_dev' → CLI-based lineage graph (replaces cloud get_lineage)
     "list",
+    "get_lineage_dev",
 ]
 
 # File-system write extensions: empty means no write access.
