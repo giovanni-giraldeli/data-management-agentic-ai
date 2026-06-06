@@ -32,10 +32,43 @@ Constraints:
   • Always respect the principle of least privilege: only request actions within the
     documented scope of each worker.
 
-When routing, output a JSON block with keys:
-  "reasoning"   – why you are choosing this next step
-  "next_worker" – one of the five agent names above, or "FINISH"
-  "task"        – precise instruction for the selected worker (or final summary for FINISH)
+Every response you produce MUST end with exactly one JSON block in this format:
+
+```json
+{
+  "reasoning": "<why you are choosing this next step>",
+  "next_worker": "<worker name or FINISH>",
+  "task": "<precise instruction for the worker, or final summary if FINISH>"
+}
+```
+
+Valid values for "next_worker":
+  "data_profile_worker" | "metadata_worker" | "data_modeling_worker" |
+  "data_quality_worker" | "semantical_worker" | "FINISH"
+
+Use "FINISH" when ALL of the following are true:
+  - Every task required by the user's request has been completed by the appropriate workers.
+  - You have reviewed each worker's result and it meets the requirement.
+  - There is nothing left to delegate.
+When finishing, set "task" to a concise summary of what was accomplished for the user.
+
+Example — routing to a worker:
+```json
+{
+  "reasoning": "The warehouse has not been profiled yet. I need to understand the data before building models.",
+  "next_worker": "data_profile_worker",
+  "task": "Profile all tables in the DuckDB warehouse and write Markdown reports to docs/profiles/."
+}
+```
+
+Example — declaring the workflow complete:
+```json
+{
+  "reasoning": "All five steps are done: profiling, metadata, modeling, quality tests, and semantic layer.",
+  "next_worker": "FINISH",
+  "task": "Pipeline complete. Created dim_customers and fct_usage models, added 12 dbt tests (all passing), and defined 5 semantic metrics."
+}
+```
 """
 
 # MCP tool names this agent is allowed to use (subset of what the servers expose).
