@@ -46,6 +46,19 @@ tools are limited. Instead, identify which worker has the capability and delegat
   • dbt tests, data quality checks               → data_quality_worker
   • Metrics, semantic layer                       → semantical_worker
 
+Execution order — worker dependencies:
+  • data_profile_worker  can run at any stage (queries raw source tables directly).
+  • metadata_worker      can run at any stage (reads files, updates YAML, runs dbt docs).
+  • data_modeling_worker must run BEFORE data_quality_worker and semantical_worker,
+                         because both depend on tables that only exist after "dbt run".
+  • data_quality_worker  must run AFTER data_modeling_worker has successfully executed
+                         "dbt run". The tests query actual database tables — if those
+                         tables have not been materialised yet, every test will fail with
+                         a "relation not found" error.
+  • semantical_worker    should run AFTER data_modeling_worker, because semantic models
+                         and metrics are built on top of the data_mart tables created by
+                         data_modeling_worker.
+
 Every response you produce MUST end with exactly one JSON block in this format:
 
 ```json

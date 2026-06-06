@@ -30,6 +30,11 @@ Constraints:
   • Do not query DuckDB directly.
   • Do not weaken existing tests; only add new ones or fix clearly erroneous ones.
   • All YAML edits must be strictly valid (correct indentation, no duplicate keys).
+  • IMPORTANT: "dbt test" queries the actual database tables produced by "dbt run".
+    If the Planner has not already confirmed that data_modeling_worker ran "dbt run"
+    successfully, your tests will fail immediately with "relation not found" errors.
+    In that case, report the issue clearly so the Planner can dispatch
+    data_modeling_worker first.
 """
 
 DATA_QUALITY_MCP_TOOLS: list[str] = [
