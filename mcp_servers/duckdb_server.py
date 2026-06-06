@@ -21,6 +21,7 @@ relative to the repo root).
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import duckdb
 from mcp.server.fastmcp import FastMCP
@@ -44,6 +45,28 @@ def _connect() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(DUCKDB_PATH, read_only=True)
 
 
+def _format_table(rows: list[tuple[Any, ...]], columns: list[str]) -> str:
+    """Render *rows* and *columns* as a plain-text aligned table.
+
+    Avoids pandas / numpy so the server has no heavy optional dependencies.
+    """
+    if not rows:
+        return "(no rows)"
+    col_widths = [len(c) for c in columns]
+    for row in rows:
+        for i, val in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(str(val) if val is not None else ""))
+    def _fmt_row(vals: tuple[Any, ...]) -> str:
+        return "  ".join(
+            (str(v) if v is not None else "").ljust(col_widths[i])
+            for i, v in enumerate(vals)
+        )
+    header = "  ".join(c.ljust(col_widths[i]) for i, c in enumerate(columns))
+    separator = "  ".join("-" * w for w in col_widths)
+    lines = [header, separator] + [_fmt_row(r) for r in rows]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -54,9 +77,11 @@ def duckdb_list_tables() -> str:
     """List all tables and views available in the DuckDB data warehouse."""
     try:
         conn = _connect()
-        df = conn.execute("SHOW ALL TABLES").fetchdf()
+        rel = conn.execute("SHOW ALL TABLES")
+        cols = [d[0] for d in rel.description]
+        rows = rel.fetchall()
         conn.close()
-        return df.to_string(index=False)
+        return _format_table(rows, cols)
     except Exception as exc:
         return f"ERROR: {exc}"
 
@@ -73,9 +98,11 @@ def duckdb_describe_table(table_name: str) -> str:
     """
     try:
         conn = _connect()
-        df = conn.execute(f"DESCRIBE {table_name}").fetchdf()
+        rel = conn.execute(f"DESCRIBE {table_name}")
+        cols = [d[0] for d in rel.description]
+        rows = rel.fetchall()
         conn.close()
-        return df.to_string(index=False)
+        return _format_table(rows, cols)
     except Exception as exc:
         return f"ERROR: {exc}"
 
@@ -113,12 +140,14 @@ def duckdb_query(sql: str) -> str:
         return "ERROR: Only SELECT (and WITH … SELECT) queries are permitted."
     try:
         conn = _connect()
-        df = conn.execute(sql).fetchdf()
+        rel = conn.execute(sql)
+        cols = [d[0] for d in rel.description]
+        rows = rel.fetchall()
         conn.close()
-        truncated = len(df) > 500
-        result = df.head(500).to_string(index=False)
+        truncated = len(rows) > 500
+        result = _format_table(rows[:500], cols)
         if truncated:
-            result += f"\n\n[Truncated to 500 rows; total rows: {len(df)}]"
+            result += f"\n\n[Truncated to 500 rows; total rows: {len(rows)}]"
         return result
     except Exception as exc:
         return f"ERROR: {exc}"
@@ -138,9 +167,11 @@ def duckdb_get_table_sample(table_name: str, limit: int = 10) -> str:
     limit = min(max(1, limit), 100)
     try:
         conn = _connect()
-        df = conn.execute(f"SELECT * FROM {table_name} LIMIT {limit}").fetchdf()
+        rel = conn.execute(f"SELECT * FROM {table_name} LIMIT {limit}")
+        cols = [d[0] for d in rel.description]
+        rows = rel.fetchall()
         conn.close()
-        return df.to_string(index=False)
+        return _format_table(rows, cols)
     except Exception as exc:
         return f"ERROR: {exc}"
 
