@@ -41,10 +41,10 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Annotated, Any, List, Literal, Optional, get_args
+from typing import Annotated, Any, List, Literal, get_args
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -252,7 +252,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     planner_agent = create_react_agent(
         llm,
         planner_tools,
-        state_modifier=PLANNER_SYSTEM_PROMPT,
+        prompt=PLANNER_SYSTEM_PROMPT,
     )
 
     async def planner_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -274,7 +274,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     # -----------------------------------------------------------------------
 
     def _make_worker_node(agent_id: str, tools: List[BaseTool], system_prompt: str):
-        worker_agent = create_react_agent(llm, tools, state_modifier=system_prompt)
+        worker_agent = create_react_agent(llm, tools, prompt=system_prompt)
 
         async def worker_node(state: AgentState, config: RunnableConfig) -> dict:
             cb = _make_callback(agent_id)
@@ -346,7 +346,7 @@ async def build_graph(mcp_tools: List[BaseTool]):
     for worker in _WORKER_NAMES:
         graph.add_edge(worker, "planner")
 
-    return graph.compile(checkpointer=None)
+    return graph.compile()
 
 
 # ---------------------------------------------------------------------------

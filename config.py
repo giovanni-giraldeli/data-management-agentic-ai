@@ -9,11 +9,11 @@ BASE_DIR = Path(__file__).parent
 # ---------------------------------------------------------------------------
 # LLM – provider-agnostic via LangChain's init_chat_model.
 # Set LLM_MODEL to any model supported by your installed provider package, e.g.:
-#   openai/gpt-4o          (requires langchain-openai + OPENAI_API_KEY)
+#   google_genai/gemini-2.5-flash  (requires langchain-google-genai + GOOGLE_API_KEY) ← recommended
 #   anthropic/claude-3-5-sonnet-20241022  (requires langchain-anthropic + ANTHROPIC_API_KEY)
-#   google_genai/gemini-1.5-pro  (requires langchain-google-genai + GOOGLE_API_KEY)
+#   openai/gpt-4o                  (requires langchain-openai + OPENAI_API_KEY)
 # ---------------------------------------------------------------------------
-LLM_MODEL: str = os.getenv("LLM_MODEL", "openai/gpt-4o")
+LLM_MODEL: str = os.getenv("LLM_MODEL", "google_genai/gemini-2.5-flash")
 LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 
 # ---------------------------------------------------------------------------
