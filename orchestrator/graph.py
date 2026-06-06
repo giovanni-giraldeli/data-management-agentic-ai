@@ -41,7 +41,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Annotated, Any, List, Literal, Optional
+from typing import Annotated, Any, List, Literal, Optional, get_args
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -111,9 +111,9 @@ from agents.semantical_worker import (
 # ---------------------------------------------------------------------------
 
 # Maximum number of graph steps before LangGraph raises GraphRecursionError.
-# Each Planner→Worker→Planner round trip costs 2 steps; 50 allows ~25 full
+# Each Planner→Worker→Planner round trip costs 2 steps; 100 allows ~50 full
 # worker dispatches before the pipeline is forcibly terminated.
-MAX_GRAPH_ITERATIONS: int = int(os.getenv("MAX_GRAPH_ITERATIONS", "50"))
+MAX_GRAPH_ITERATIONS: int = int(os.getenv("MAX_GRAPH_ITERATIONS", "100"))
 
 # Seconds to wait for both MCP servers to finish starting up.
 MCP_STARTUP_TIMEOUT: float = float(os.getenv("MCP_STARTUP_TIMEOUT", "30"))
@@ -149,13 +149,8 @@ class PlannerDecision(BaseModel):
     task: str
 
 
-_WORKER_NAMES = [
-    "data_profile_worker",
-    "metadata_worker",
-    "data_modeling_worker",
-    "data_quality_worker",
-    "semantical_worker",
-]
+# Derived from WorkerName to avoid duplication — strips out the "FINISH" sentinel.
+_WORKER_NAMES: list[str] = [w for w in get_args(WorkerName) if w != "FINISH"]
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -27,16 +27,12 @@ from config import AUDIT_LOG_PATH
 from orchestrator.graph import run_pipeline
 
 _DEFAULT_TASK = (
-    "Analyse the provided DuckDB data warehouse (tables: aspnet_membership, aspnet_profile, "
-    "domain, domain_group) and build a complete analytical layer: "
-    "(1) Profile all source tables and document the results as Markdown reports. "
-    "(2) Enrich the dbt YAML metadata with business-friendly descriptions. "
-    "(3) Create two dbt models: dim_customers (SCD Type 1) and fct_usage (last 2 years, "
-    "aggregated by customer, with domain package breakdowns). "
-    "(4) Add data quality tests covering primary keys, referential integrity, and value ranges. "
-    "(5) Build a semantic layer defining the standard business metrics "
-    "(total_customers, total_domains, domains_s_package, domains_m_package, domains_l_package). "
-    "Work in the dbt project directory only. Do not push to any remote repository."
+    "Inspect the current state of the project and report back. "
+    "Specifically: "
+    "(1) List all tables present in the DuckDB warehouse and summarise their row counts and columns. "
+    "(2) List all existing dbt models, sources, and tests defined in the project. "
+    "(3) Summarise any data profile reports (.md files) already written under docs/. "
+    "Do not create, modify, or delete any files. Only read and report."
 )
 
 
