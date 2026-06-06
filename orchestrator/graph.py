@@ -69,6 +69,7 @@ from config import (
     DUCKDB_PATH,
     LLM_MAX_TOKENS,
     LLM_MODEL,
+    LLM_RPM_LIMIT,
     LLM_TEMPERATURE,
     MCP_DBT_SERVER,
     MCP_DUCKDB_SERVER,
@@ -224,6 +225,18 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     _llm_kwargs: dict = {"temperature": LLM_TEMPERATURE}
     if LLM_MAX_TOKENS is not None:
         _llm_kwargs["max_tokens"] = LLM_MAX_TOKENS
+    # Proactive rate limiting: queue requests before they reach the API so the
+    # pipeline never triggers a 429.  All six agents share one LLM instance, so
+    # a single limiter here covers the entire pipeline.
+    # Set LLM_RPM_LIMIT in .env to match your API tier (e.g. 15 for the Gemini
+    # AI Studio free tier).  0 = unlimited (default).
+    if LLM_RPM_LIMIT > 0:
+        from langchain_core.rate_limiters import InMemoryRateLimiter
+        _llm_kwargs["rate_limiter"] = InMemoryRateLimiter(
+            requests_per_second=LLM_RPM_LIMIT / 60,
+            check_every_n_seconds=0.1,
+            max_bucket_size=1,  # no bursting — enforce the rate strictly
+        )
     if "/" in LLM_MODEL:
         _provider, _model_name = LLM_MODEL.split("/", 1)
         llm = init_chat_model(_model_name, model_provider=_provider, **_llm_kwargs)

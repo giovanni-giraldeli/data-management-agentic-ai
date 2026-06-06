@@ -22,6 +22,11 @@ LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
 # provider default (not recommended with OpenRouter free-tier models).
 _max_tokens_env = os.getenv("LLM_MAX_TOKENS", "4096")
 LLM_MAX_TOKENS: int | None = int(_max_tokens_env) if _max_tokens_env.strip() != "0" else None
+# Maximum LLM requests per minute across all agents.  Set to the limit of your
+# API tier so the pipeline never exceeds it.  The InMemoryRateLimiter queues
+# requests proactively, so the API never sees a 429.
+# Examples: Gemini AI Studio free tier = 15, paid tier = 2000, 0 = unlimited.
+LLM_RPM_LIMIT: int = int(os.getenv("LLM_RPM_LIMIT", "0"))
 
 # ---------------------------------------------------------------------------
 # DuckDB
