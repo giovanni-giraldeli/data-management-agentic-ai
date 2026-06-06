@@ -9,8 +9,8 @@ per line).  Each entry records:
                      can be filtered independently
   - timestamp      : UTC ISO-8601
   - agent_id       : which agent produced this event
-  - event_type     : one of system_start | llm_start | llm_end | tool_start |
-                     tool_end | llm_error | tool_error
+  - event_type     : one of system_start | system_cancelled | llm_start |
+                     llm_end | tool_start | tool_end | llm_error | tool_error
 
   Event-specific fields:
   - prompt         : user task string (system_start only)
@@ -90,6 +90,15 @@ class AuditTrailCallback(BaseCallbackHandler):
         what task was submitted without having to parse LLM input messages.
         """
         self._append({"event_type": "system_start", "prompt": prompt})
+
+    def log_system_cancelled(self) -> None:
+        """Write a system_cancelled entry when the user interrupts the pipeline.
+
+        Called from main.py on KeyboardInterrupt so that every session in the
+        audit log has a clear terminal event — either system_start … FINISH or
+        system_start … system_cancelled.
+        """
+        self._append({"event_type": "system_cancelled"})
 
     # ------------------------------------------------------------------
     # LLM events

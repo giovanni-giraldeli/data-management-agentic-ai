@@ -140,10 +140,30 @@ async def main() -> None:
     print("=" * 72)
 
     from datetime import datetime, timezone
+    from audit.callbacks import AuditTrailCallback
+
     start_time = datetime.now(timezone.utc)
     print(f"Started    : {start_time.isoformat(timespec='seconds')}")
+    print("(Press Ctrl+C to stop the pipeline at any time.)")
 
-    result, session_id = await run_pipeline(task)
+    session_id: str | None = None
+    try:
+        result, session_id = await run_pipeline(task)
+    except KeyboardInterrupt:
+        end_time = datetime.now(timezone.utc)
+        elapsed = end_time - start_time
+        print(f"\n\nCancelled  : {end_time.isoformat(timespec='seconds')}")
+        print(f"Elapsed    : {int(elapsed.total_seconds())}s")
+        print("\n" + "=" * 72)
+        print("Pipeline cancelled by user.")
+        print("=" * 72)
+        # Write a system_cancelled audit entry so the session has a clear
+        # terminal event in the log (system_start … system_cancelled).
+        if session_id is not None:
+            AuditTrailCallback(
+                log_path=AUDIT_LOG_PATH, agent_id="system", session_id=session_id
+            ).log_system_cancelled()
+        return
 
     end_time = datetime.now(timezone.utc)
     elapsed = end_time - start_time
