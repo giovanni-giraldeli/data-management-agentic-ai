@@ -45,3 +45,4 @@ mcp[cli]>=1.0.0
 # -----------------------------------------------------------------------------
 python-dotenv>=1.0.0
 pydantic>=2.0.0
+pypdf>=4.0.0              # PDF text extraction for --task-file / file-path task argument
