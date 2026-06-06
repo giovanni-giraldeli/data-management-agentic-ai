@@ -129,11 +129,42 @@ class AuditTrailCallback(BaseCallbackHandler):
         run_id: UUID,
         **kwargs: Any,
     ) -> None:
-        outputs = [
-            gen.text if hasattr(gen, "text") else str(gen)
-            for gens in response.generations
-            for gen in gens
-        ]
+        # For chat models (ChatGeneration), gen.text is empty when the response
+        # is a list-of-parts (Gemini's default format) or a pure tool-call.
+        # The actual content lives in gen.message.content.  We extract it here
+        # so the audit log contains the Planner's reasoning and routing JSON.
+        # When the LLM called a tool instead of writing text, we log the tool
+        # name(s) so the entry is still informative rather than just "".
+        outputs = []
+        for gens in response.generations:
+            for gen in gens:
+                text = ""
+                if hasattr(gen, "message"):
+                    msg = gen.message
+                    content = getattr(msg, "content", "")
+                    if isinstance(content, list):
+                        # Multi-part Gemini response: join text parts
+                        text = "\n".join(
+                            part.get("text", "")
+                            for part in content
+                            if isinstance(part, dict) and part.get("type") == "text"
+                        ).strip()
+                    elif isinstance(content, str):
+                        text = content.strip()
+                    # If still empty the response was a pure tool-call — surface
+                    # the tool name(s) so the audit entry is meaningful.
+                    if not text:
+                        tool_calls = getattr(msg, "tool_calls", [])
+                        if tool_calls:
+                            names = ", ".join(
+                                tc.get("name", "?") if isinstance(tc, dict) else getattr(tc, "name", "?")
+                                for tc in tool_calls
+                            )
+                            text = f"[tool_call: {names}]"
+                # Fall back to gen.text for non-chat models
+                if not text:
+                    text = getattr(gen, "text", "") or ""
+                outputs.append(text)
         self._append({"event_type": "llm_end", "outputs": outputs})
 
     def on_llm_error(
