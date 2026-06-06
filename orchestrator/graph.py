@@ -406,6 +406,12 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
                 **os.environ,
                 "DBT_PROJECT_DIR": DBT_PROJECT_DIR,
                 "DBT_PROFILES_DIR": DBT_PROFILES_DIR,
+                # Disable all dbt Cloud features so the server runs in local
+                # CLI-only mode without requiring DBT_HOST / DBT_TOKEN.
+                "DISABLE_DISCOVERY": "true",
+                "DISABLE_SEMANTIC_LAYER": "true",
+                "DISABLE_ADMIN_API": "true",
+                "DISABLE_SQL": "true",
             },
         },
     }

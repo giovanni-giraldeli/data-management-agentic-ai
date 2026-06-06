@@ -29,13 +29,10 @@ Constraints:
 """
 
 METADATA_MCP_TOOLS: list[str] = [
-    # Official dbt-mcp tool names
-    "docs",           # dbt docs generate
-    "list",           # dbt ls
-    "get_all_models",
-    "get_model_details",
-    "get_all_sources",
-    "get_source_details",
+    # dbt CLI tools (local; no dbt Cloud credentials required)
+    "docs",               # dbt docs generate
+    "list",               # dbt list: enumerate models and sources by selector
+    "get_node_details_dev",  # CLI-based node details (replaces cloud get_model_details / get_source_details)
 ]
 
 METADATA_FS_WRITE_EXTENSIONS: list[str] = [".yml"]

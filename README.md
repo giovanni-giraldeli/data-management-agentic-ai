@@ -31,12 +31,12 @@ Each agent has strictly scoped tool access (principle of least privilege, thesis
 
 | Agent | DuckDB | dbt commands | File writes |
 |---|---|---|---|
-| Planner | list_tables, describe_table | get_all_models, get_all_sources, get_lineage, ls | none |
+| Planner | list_tables, describe_table | list, get_lineage_dev | none |
 | Data Profile Worker | list, describe, query, sample | — | `.md` |
-| Metadata Worker | — | docs generate, ls, get_all_models, get_model_details, get_all_sources, get_source_details | `.yml` |
-| Data Modeling Worker | list, describe, query | run, ls, compile | `.sql` |
-| Data Quality Worker | — | test, ls, get_test_details | `.yml` |
-| Semantical Worker | list, describe, query | run, docs generate, ls, get_all_models, get_semantic_model_details, list_metrics, list_saved_queries | `.yml .md .sql` |
+| Metadata Worker | — | docs generate, list, get_node_details_dev | `.yml` |
+| Data Modeling Worker | list, describe, query | run, list, compile | `.sql` |
+| Data Quality Worker | — | test, list, get_node_details_dev | `.yml` |
+| Semantical Worker | list, describe, query | run, docs generate, list, get_node_details_dev | `.yml .md .sql` |
 
 ---
 

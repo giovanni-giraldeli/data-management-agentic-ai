@@ -33,10 +33,10 @@ Constraints:
 """
 
 DATA_QUALITY_MCP_TOOLS: list[str] = [
-    # Official dbt-mcp tool names
-    "test",   # dbt test
-    "list",   # dbt ls
-    "get_test_details",
+    # dbt CLI tools (local; no dbt Cloud credentials required)
+    "test",              # dbt test
+    "list",              # dbt list: enumerate tests by selector
+    "get_node_details_dev",  # CLI-based node details (replaces cloud get_test_details)
 ]
 
 DATA_QUALITY_FS_WRITE_EXTENSIONS: list[str] = [".yml"]
