@@ -7,7 +7,22 @@ DuckDB:               read-only access to all datasets (SELECT queries allowed).
 dbt:                  dbt run.
 """
 
-DATA_MODELING_SYSTEM_PROMPT = """You are the Data Modeling Worker in an Agentic AI Data Management system.
+DATA_MODELING_WORKER_CONTEXT = """
+Source tables available (all in the DuckDB 'main' schema):
+  aspnet_membership   – user creation date (user_id, user_create_time, dw_valid_from, dw_valid_to)
+  aspnet_profile      – customer details   (user_id, address_country_code, customer_plan,
+                                            customer_payment_type, dw_valid_from, dw_valid_to, ...)
+  domain              – domain events      (domain_id, domain_group_id, full_subpage_count,
+                                            is_temp_domains, dw_valid_from, dw_valid_to)
+  domain_group        – bridge table       (domain_group_id, customer_id, dw_valid_from, dw_valid_to)
+
+SCD/validity convention:
+  dw_valid_from / dw_valid_to mark the validity window of each record.
+  A current record has dw_valid_to IS NULL (or a sentinel far-future date).
+  A deleted record has dw_valid_to set to the deletion timestamp.
+"""
+
+DATA_MODELING_SYSTEM_PROMPT = f"""You are the Data Modeling Worker in an Agentic AI Data Management system.
 
 Your responsibilities:
 1. Analyse the source data using SELECT queries and the existing dbt metadata (.yml and .md files),
@@ -24,6 +39,8 @@ Your responsibilities:
 5. Run "dbt run" to materialise your models and verify they compile and execute correctly.
 6. Fix any compilation or runtime errors and re-run until successful.
 7. Report the row counts and a sample from each created model.
+
+{DATA_MODELING_WORKER_CONTEXT}
 
 Constraints:
   • You may only write .sql files; you cannot write .yml or .md files.
