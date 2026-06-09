@@ -141,6 +141,7 @@ class AgentState(TypedDict):
     next_worker: str         # set by the planner; drives conditional routing
     current_task: str        # the specific task instruction sent to the active worker
     plan: list[str]          # the Planner's current execution plan (steps as strings)
+    retry_counts: dict[str, int]  # how many times each worker has been re-delegated to
 
 
 # ---------------------------------------------------------------------------
@@ -221,21 +222,28 @@ def _extract_planner_decision(content: str) -> dict:
 #
 # Database / dbt tools (dbt list, duckdb_list_tables, …) are NOT deduplicated
 # because their results change during the pipeline as workers materialise models.
-_DEDUP_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_directory"})
+# "list" (dbt list MCP tool) is also deduplicated within a single Planner
+# invocation — calling `dbt list --resource-type model` and then cycling through
+# every other resource_type after receiving "OK" results adds no information.
+# Note: _seen is RESET at the start of each planner_node call (see below), so
+# dedup is per-invocation only.  After a worker runs the Planner is allowed to
+# call dbt list again (e.g. to confirm newly materialised models exist).
+_DEDUP_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_directory", "list"})
 
 
 class _DeduplicatingToolNode(ToolNode):
-    """ToolNode that blocks exact-duplicate filesystem tool calls.
+    """ToolNode that blocks exact-duplicate Planner tool calls within one invocation.
 
-    On the first call to read_file or list_directory with a given set of
-    arguments, the tool executes normally and the result is cached.  Any
-    subsequent call with the *identical* (tool_name, args) pair returns an
-    error-style ToolMessage telling the LLM it already has the result and
-    should stop exploring and write its plan.
+    On the first call to read_file, list_directory, or list (dbt list) with a
+    given set of arguments, the tool executes normally and the key is cached in
+    _seen.  Any subsequent call with the *identical* (tool_name, args) pair
+    returns an error-style ToolMessage telling the LLM it already has the result
+    and should stop exploring and write its plan.
 
-    Only filesystem tools are deduplicated; MCP tools that reflect changing
-    warehouse/project state (dbt list, duckdb_list_tables, …) execute every
-    time so the Planner can see newly-materialised models after a worker runs.
+    _seen is cleared at the start of each planner_node call so deduplication is
+    per-Planner-invocation, not per-pipeline-run.  This allows the Planner to
+    call dbt list again after a worker returns (e.g. to verify new models), while
+    still blocking endless cycling through every resource_type in a single Phase.
     """
 
     def __init__(self, tools: list, **kwargs) -> None:
@@ -372,19 +380,25 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # -----------------------------------------------------------------------
 
     # The Planner uses a _DeduplicatingToolNode which:
-    #   1. Blocks exact-duplicate read_file / list_directory calls and returns a
-    #      "you already have this — write your plan" ToolMessage, preventing the
-    #      Planner from looping endlessly over the same filesystem paths.
+    #   1. Blocks exact-duplicate read_file / list_directory / dbt-list calls within
+    #      a single Planner invocation.  _seen is cleared at the start of each
+    #      planner_node call so dedup is per-invocation, not per-pipeline-run.
+    #      This prevents the Planner from cycling through the same filesystem paths
+    #      or through every dbt resource_type endlessly during Phase 1 exploration.
     #   2. Handles tool errors gracefully (handle_tool_errors=True) so exceptions
     #      such as FileNotFoundError from get_lineage_dev are returned as ToolMessages
     #      instead of crashing the pipeline.
     # Workers use a plain ToolNode with error handling only — deduplication is not
     # needed there because workers execute a focused task, not open-ended exploration.
+    planner_dedup_node = _DeduplicatingToolNode(planner_tools, handle_tool_errors=True)
     planner_agent = create_react_agent(
         llm,
-        _DeduplicatingToolNode(planner_tools, handle_tool_errors=True),
+        planner_dedup_node,
         prompt=PLANNER_SYSTEM_PROMPT,
     )
+
+    # Worker-name sentinel used for Phase 2 detection.
+    _WORKER_COMPLETION_MARKER = "] Task completed."
 
     async def planner_node(state: AgentState, config: RunnableConfig) -> dict:
         cb = _make_callback("planner", session_id)
@@ -393,9 +407,91 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
         # (one LLM step + one tool-execution step), so PLANNER_MAX_STEPS=25
         # allows ~12 tool calls before GraphRecursionError is raised.
         cfg = {**config, "callbacks": [cb], "recursion_limit": PLANNER_MAX_STEPS}
+
+        # Reset the dedup cache for this invocation.  Deduplication is
+        # per-planner-call, not per-pipeline-run: within a single exploration
+        # phase the Planner cannot repeat a tool call; but after a worker
+        # returns the Planner is allowed to call dbt list / list_directory
+        # again (e.g. to confirm newly materialised models exist).
+        planner_dedup_node._seen.clear()
+
+        # ------------------------------------------------------------------
+        # Phase 2 detection and context injection.
+        #
+        # After a worker completes, its summary arrives as a HumanMessage
+        # in the format "[worker_name] Task completed.\n\n<summary>".
+        # We detect this, extract the worker name for retry tracking, and
+        # inject a [PHASE 2 REMINDER] that:
+        #   - Echoes the current plan so the Planner can identify the next step.
+        #   - Instructs the Planner to evaluate the summary and route immediately.
+        #   - Escalates the retry warning if the worker has already been retried.
+        # ------------------------------------------------------------------
+        messages = list(state["messages"])
+        last_msg = messages[-1] if messages else None
+        is_phase_2 = (
+            isinstance(last_msg, HumanMessage)
+            and _WORKER_COMPLETION_MARKER in (last_msg.content or "")
+        )
+
+        # Extract the name of the worker that just completed (e.g. "data_profile_worker").
+        completed_worker: str | None = None
+        if is_phase_2 and last_msg is not None:
+            m = re.match(r"\[([^\]]+)\] Task completed\.", last_msg.content or "")
+            if m:
+                completed_worker = m.group(1)
+
+        # Current retry tally (carried forward in state across planner calls).
+        current_retry_counts: dict[str, int] = dict(state.get("retry_counts") or {})
+        worker_retry_count = (
+            current_retry_counts.get(completed_worker, 0) if completed_worker else 0
+        )
+
+        # Build an escalating retry note to include in the reminder.
+        if worker_retry_count == 1:
+            retry_note = (
+                f"\n⚠ NOTE: {completed_worker} has already been retried once. "
+                "If the output is still incomplete, note the remaining gap as an "
+                "outstanding item and advance to the next plan step — "
+                "do not re-delegate a third time."
+            )
+        elif worker_retry_count >= 2:
+            retry_note = (
+                f"\n🚫 HARD LIMIT: {completed_worker} has been retried "
+                f"{worker_retry_count} time(s). You MUST NOT re-delegate to this "
+                "worker again. Accept the output as-is, note any remaining gaps "
+                "in the task field, and advance to the next plan step."
+            )
+        else:
+            retry_note = ""
+
+        if is_phase_2 and state.get("plan"):
+            plan_text = "\n".join(state["plan"])
+            messages.append(
+                HumanMessage(
+                    content=(
+                        "[PHASE 2 REMINDER]\n"
+                        "The worker above has just finished. Your current plan is:\n\n"
+                        f"{plan_text}\n\n"
+                        "Review the worker's summary against the expected deliverables "
+                        "(see 'Worker output review' in your instructions).\n"
+                        "  • If acceptable: output the routing JSON for the NEXT step.\n"
+                        "  • If a deliverable is missing: re-delegate to the SAME worker "
+                        "with a corrective task describing exactly what is missing.\n"
+                        "You may make AT MOST 2 targeted verification calls before "
+                        "routing (e.g. confirm a model was materialised, read a "
+                        "specific output file). After those calls — or immediately "
+                        "if the summary is sufficient — write the JSON block.\n"
+                        "⚠ NO open-ended re-survey: do not loop through directories, "
+                        "do not cycle dbt list resource_types, do not re-read files "
+                        "already in this conversation. Workers are not function calls "
+                        f"— delegate only through the JSON routing block.{retry_note}"
+                    )
+                )
+            )
+
         try:
             result = await planner_agent.ainvoke(
-                {"messages": state["messages"]}, cfg
+                {"messages": messages}, cfg
             )
             last_msg: AIMessage = result["messages"][-1]
         except Exception as exc:
@@ -419,6 +515,15 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
             }))
         decision = _extract_planner_decision(str(last_msg.content))
 
+        # ------------------------------------------------------------------
+        # Retry tracking — if the Planner routes back to the worker that just
+        # completed, record it so that escalating warnings can be shown on the
+        # next invocation and a hard cap can be enforced after two retries.
+        # ------------------------------------------------------------------
+        next_w = decision.get("next_worker", "FINISH")
+        if completed_worker and next_w == completed_worker and next_w in _WORKER_NAMES:
+            current_retry_counts[next_w] = current_retry_counts.get(next_w, 0) + 1
+
         # Carry the plan forward in state.  The Planner includes "plan" in its
         # JSON on the first response and whenever it revises the plan; it omits
         # the field on routine step-by-step execution to save tokens.  We keep
@@ -431,9 +536,10 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
 
         return {
             "messages": [last_msg],
-            "next_worker": decision.get("next_worker", "FINISH"),
+            "next_worker": next_w,
             "current_task": decision.get("task", ""),
             "plan": new_plan,
+            "retry_counts": current_retry_counts,
         }
 
     # -----------------------------------------------------------------------
@@ -604,7 +710,8 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
         "messages": [HumanMessage(content=task)],
         "next_worker": "",
         "current_task": task,
-        "plan": [],  # populated by the Planner on its first response
+        "plan": [],          # populated by the Planner on its first response
+        "retry_counts": {},  # incremented each time Planner re-delegates to a worker
     }
     final_state = await compiled.ainvoke(
         initial_state,
