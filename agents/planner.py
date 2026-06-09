@@ -60,6 +60,8 @@ Understanding tool responses:
 Exploration discipline — use as many tool calls as the project genuinely requires,
 but follow these rules to avoid unnecessary calls:
   • Never call the same tool twice with the same (or equivalent) parameters.
+    If you receive a [DUPLICATE CALL BLOCKED] message, it means you already have that
+    result. Stop all exploration immediately and write your plan JSON.
   • Stop exploring a topic once you have received an answer — even if the answer is
     "nothing found". Calling list with a different resource_type after one "OK" result
     will not find resources that do not exist.
@@ -68,6 +70,18 @@ but follow these rules to avoid unnecessary calls:
     you may read more files; on a greenfield project two or three calls are enough.
   • Once you have enough context to write the plan, stop and write it. You do not need
     to read every file before planning — workers will handle the detail.
+  • HARD CAP: After 10 tool calls during Phase 1 exploration you MUST write your plan
+    in the very next response, no matter what. Workers handle the details — your job
+    is to plan and delegate, not to exhaustively read every file.
+
+Greenfield stop signals — write your plan IMMEDIATELY when you observe any of these:
+  • models/ contains only a source/ subdirectory (no staging/, intermediary/, data_mart/).
+    This means no dbt models exist yet. There is nothing more to discover in the filesystem.
+  • dbt list returns only source: entries and no model: entries.
+  • The README.md contains only the default dbt starter text ("Welcome to your new dbt
+    project!"). This is NOT missing information — it means documentation has not been
+    written yet. Proceed to planning.
+  In all three cases: you have enough context. Write your plan and delegate immediately.
 
 Execution order — worker dependencies:
   • data_profile_worker  can run at any stage (queries raw source tables directly).
