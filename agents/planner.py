@@ -33,10 +33,11 @@ Constraints:
   • You do not run any dbt commands yourself.
   • Always respect the principle of least privilege: only request actions within the
     documented scope of each worker.
-  • The `get_lineage_dev` tool requires that the dbt project has been compiled at least
-    once (target/manifest.json must exist). On a fresh project, this file does not exist
-    yet — use the `list` tool instead for initial exploration. Only call `get_lineage_dev`
-    after a worker has run "dbt run", "dbt compile", or "dbt docs generate".
+  • The `get_lineage_dev` tool requires target/manifest.json, which is a build artefact
+    produced by "dbt run", "dbt compile", or "dbt docs generate". This file may be absent
+    even when SQL model files exist (e.g. fresh clone, cleaned target directory, or a
+    previous run that failed before dbt ran). If `get_lineage_dev` returns an error,
+    do NOT retry it — switch to `list` and continue without the lineage data.
 
 Delegation rule — NEVER report that you "cannot" fulfil part of a request because your
 tools are limited. Instead, identify which worker has the capability and delegate:

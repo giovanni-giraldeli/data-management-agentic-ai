@@ -51,7 +51,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import ToolNode, create_react_agent
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
@@ -277,9 +277,15 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # Planner node — supervisor that routes to workers
     # -----------------------------------------------------------------------
 
+    # Wrap all tool lists in ToolNode with handle_tool_errors=True so that any
+    # exception raised by a tool (e.g. FileNotFoundError from get_lineage_dev when
+    # manifest.json does not exist) is caught and returned to the LLM as a
+    # ToolMessage with status="error" instead of propagating up and crashing the
+    # agent.  Without this, a single bad tool call silently terminates the pipeline
+    # with an "Unexpected Planner error" message.
     planner_agent = create_react_agent(
         llm,
-        planner_tools,
+        ToolNode(planner_tools, handle_tool_errors=True),
         prompt=PLANNER_SYSTEM_PROMPT,
     )
 
@@ -338,7 +344,11 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # -----------------------------------------------------------------------
 
     def _make_worker_node(agent_id: str, tools: List[BaseTool], system_prompt: str):
-        worker_agent = create_react_agent(llm, tools, prompt=system_prompt)
+        worker_agent = create_react_agent(
+            llm,
+            ToolNode(tools, handle_tool_errors=True),
+            prompt=system_prompt,
+        )
 
         async def worker_node(state: AgentState, config: RunnableConfig) -> dict:
             cb = _make_callback(agent_id, session_id)
