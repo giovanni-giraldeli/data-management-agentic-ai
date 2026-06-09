@@ -71,6 +71,10 @@ but follow these rules to avoid unnecessary calls:
 Execution order — worker dependencies:
   • data_profile_worker  can run at any stage (queries raw source tables directly).
   • metadata_worker      can run at any stage (reads files, updates YAML, runs dbt docs).
+                         Recommended: run once after data_profile_worker (to document sources
+                         before modeling) and again after data_modeling_worker (to document
+                         new model layers). Running metadata_worker before data_modeling_worker
+                         enriches source YAML descriptions, giving the modeler richer context.
   • data_modeling_worker must run BEFORE data_quality_worker and semantical_worker,
                          because both depend on tables that only exist after "dbt run".
   • data_quality_worker  must run AFTER data_modeling_worker has successfully executed
@@ -87,8 +91,7 @@ to do its job correctly — do not rely on the worker reading the conversation h
   • Summarise what the user's requirements say about the datasets in scope (e.g. which
     tables, which transformations, which relationships between tables).
   • Include any specific relationships or business rules stated in the original request
-    that apply to this worker's scope (e.g. "users link to domains via domain_group;
-    domain_group.customer_id = aspnet_profile.user_id").
+    that apply to this worker's scope.
   • Reference relevant prior worker outputs by name (e.g. "use the profile reports in
     docs/profiles/ — especially domain.md which confirms the domain→domain_group FK").
   • State explicitly which objects the worker must cover (e.g. "cover all three dbt
@@ -162,17 +165,18 @@ Example — first response (Phase 1, greenfield project):
 ```json
 {
   "plan": [
-    "1. [data_profile_worker] Profile all 4 source tables, write Markdown reports to docs/profiles/, verify FK relationships",
-    "2. [data_modeling_worker] Create staging, intermediary and data_mart SQL models, run dbt run",
-    "3. [data_profile_worker] Profile all newly created dbt models (staging + data_mart), update erd.md",
-    "4. [metadata_worker] Enrich YAML column descriptions for sources and all model layers, run dbt docs generate",
-    "5. [data_quality_worker] Define tests for all layers (sources + staging + data_mart), run dbt test",
-    "6. [semantical_worker] Build semantic models and metrics under models/semantics/, run dbt docs generate",
-    "7. [metadata_worker] Update agentic_dbt_project/README.md with project overview, conceptual/logical/physical data models"
+    "1. [data_profile_worker] Profile all source tables, write Markdown reports to docs/profiles/, verify FK relationships",
+    "2. [metadata_worker] Enrich YAML descriptions for all source tables using the profile reports",
+    "3. [data_modeling_worker] Create staging, intermediary and data_mart SQL models, run dbt run",
+    "4. [data_profile_worker] Profile all newly created dbt models (staging + data_mart), update erd.md",
+    "5. [metadata_worker] Enrich YAML descriptions for all new model layers, run dbt docs generate",
+    "6. [data_quality_worker] Define tests for all layers (sources + staging + data_mart), run dbt test",
+    "7. [semantical_worker] Build semantic models and metrics under models/semantics/, run dbt docs generate",
+    "8. [metadata_worker] Update agentic_dbt_project/README.md with project overview, conceptual/logical/physical data models"
   ],
-  "reasoning": "Greenfield project — only sources exist. Starting with profiling to understand the data and relationships before modeling.",
+  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data, then documenting sources before modeling so the data modeler has richer context.",
   "next_worker": "data_profile_worker",
-  "task": "Profile all 4 source tables in the DuckDB warehouse (aspnet_membership, aspnet_profile, domain, domain_group) and write Markdown reports to docs/profiles/. The user's requirements state the following relationships: domain_group.customer_id links to aspnet_profile.user_id; domain.domain_group_id links to domain_group.domain_group_id. Verify these FKs with COUNT queries and document the results in each profile report and in erd.md."
+  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Verify the FK relationships stated in the user requirements with COUNT queries and document the results in each profile report and in erd.md."
 }
 ```
 
@@ -189,13 +193,14 @@ Example — subsequent response, plan revised:
 ```json
 {
   "plan": [
-    "1. [data_profile_worker] DONE — profiles written for all 4 source tables",
-    "2. [data_modeling_worker] DONE — dim_customers and fct_orders created",
-    "3. [data_profile_worker] DONE — staging and data_mart models profiled, erd.md updated",
-    "4. [data_quality_worker] REVISED — run tests before docs to catch errors early",
-    "5. [metadata_worker] Enrich YAML for all layers, run dbt docs generate",
-    "6. [semantical_worker] Build semantic metrics under models/semantics/",
-    "7. [metadata_worker] Update agentic_dbt_project/README.md"
+    "1. [data_profile_worker] DONE — profiles written for all source tables",
+    "2. [metadata_worker] DONE — source YAML descriptions enriched",
+    "3. [data_modeling_worker] DONE — dim_customers and fct_orders created",
+    "4. [data_profile_worker] DONE — staging and data_mart models profiled, erd.md updated",
+    "5. [data_quality_worker] REVISED — run tests before docs to catch errors early",
+    "6. [metadata_worker] Enrich YAML for new model layers, run dbt docs generate",
+    "7. [semantical_worker] Build semantic metrics under models/semantics/",
+    "8. [metadata_worker] Update agentic_dbt_project/README.md"
   ],
   "reasoning": "Modeling complete but data_modeling_worker flagged a referential integrity concern. Running tests before docs to surface issues early.",
   "next_worker": "data_quality_worker",
@@ -206,7 +211,7 @@ Example — subsequent response, plan revised:
 Example — declaring the workflow complete:
 ```json
 {
-  "reasoning": "Requirements check: (1) profiling done for sources + models ✓; (2) staging/intermediary/data_mart models created and run ✓; (3) metadata for all layers enriched ✓; (4) tests for all layers added and passing ✓; (5) semantic layer created under models/semantics/ ✓; (6) README.md updated ✓. All requirements met.",
+  "reasoning": "Requirements check: (1) profiling done for sources + models ✓; (2) source metadata enriched before modeling ✓; (3) staging/intermediary/data_mart models created and run ✓; (4) model layer metadata enriched ✓; (5) tests for all layers added and passing ✓; (6) semantic layer created under models/semantics/ ✓; (7) README.md updated ✓. All requirements met.",
   "next_worker": "FINISH",
   "task": "Pipeline complete. Created 8 dbt models across 3 layers. Added 24 tests (all passing). Wrote 6 profile reports under docs/profiles/. Defined 3 semantic metrics under models/semantics/. Updated agentic_dbt_project/README.md with full data model documentation."
 }
