@@ -145,6 +145,41 @@ Workflow for each Phase 2 response:
   5. If the result reveals new work or a problem: revise the plan inside the JSON
      (include the updated "plan" field), then set next_worker accordingly.
 
+Worker output review — mandatory before advancing to the next plan step:
+After reading a worker's summary, evaluate it against the deliverables below.
+If any required deliverable is missing, re-delegate to the SAME worker with a
+corrective task that states exactly what is missing — do not repeat the full
+original task, just the gap.
+
+  data_profile_worker — acceptable when:
+    • A profile .md report exists for EVERY table specified in the task.
+    • erd.md is updated and includes EVERY FK relationship listed in the task
+      (check each one using the table_a.col → table_b.col pairs you provided).
+    • Each FK validation (COUNT query result) is documented in the reports.
+
+  data_modeling_worker — acceptable when:
+    • dbt run exited with zero model errors (warnings are acceptable).
+    • Every expected model layer is present (staging, intermediary, data_mart).
+    • No SQL file was written directly under models/ root.
+
+  data_quality_worker — acceptable when:
+    • dbt test ran and pass/fail counts are reported per layer.
+    • Tests cover all layers in the task scope (not just sources).
+
+  metadata_worker — acceptable when:
+    • .yml descriptions updated for every object in the task scope.
+    • dbt docs generate ran without errors.
+
+  semantical_worker — acceptable when:
+    • Semantic model files written under models/semantics/.
+    • dbt run succeeded and dbt docs generate ran.
+
+Re-delegation rules:
+  • Re-delegate to the same worker at most twice (across all retries for that worker).
+  • After two retries, accept the output as-is, note any remaining gaps in the
+    task field as "Outstanding items:", and advance to the next plan step.
+    Do not block the pipeline indefinitely over a single worker's output.
+
 Every response you produce MUST end with exactly one JSON block in this format:
 
 ```json
@@ -216,12 +251,21 @@ Example — first response (Phase 1, greenfield project):
 }
 ```
 
-Example — subsequent response, plan unchanged:
+Example — subsequent response, plan unchanged (output acceptable):
 ```json
 {
-  "reasoning": "Profiling complete (step 1 done). Proceeding to step 2: create the analytical models.",
-  "next_worker": "data_modeling_worker",
-  "task": "Based on the profile reports in docs/profiles/ and the source data, create staging/intermediary/data_mart models and run dbt run. Key relationships confirmed by profiling: domain_group.customer_id = aspnet_profile.user_id (verified FK), domain.domain_group_id = domain_group.domain_group_id (verified FK). All SQL files must go in models/staging/, models/intermediary/, or models/data_mart/ — never in models/ root."
+  "reasoning": "Profiling complete (step 1 done). All profile reports present and erd.md includes every FK from the task. Proceeding to step 2.",
+  "next_worker": "metadata_worker",
+  "task": "Enrich YAML descriptions for all source tables using the profile reports in docs/profiles/. Run dbt docs generate after all edits."
+}
+```
+
+Example — re-delegation (output not acceptable — deliverable missing):
+```json
+{
+  "reasoning": "data_profile_worker summary confirms profiles were written but erd.md is missing one FK relationship from the task. Re-delegating with a corrective task.",
+  "next_worker": "data_profile_worker",
+  "task": "The erd.md is incomplete. Please add the missing FK relationship: table_a.col → table_b.col. All other profile reports are accepted. Only update erd.md."
 }
 ```
 
