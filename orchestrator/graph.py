@@ -442,11 +442,16 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
                         "[PHASE 2 REMINDER]\n"
                         "The worker above has just finished. Your current plan is:\n\n"
                         f"{plan_text}\n\n"
-                        "Identify the next uncompleted step in the plan and output "
-                        "your routing JSON for it NOW.\n"
-                        "⚠ DO NOT call any tools. DO NOT re-read files. "
-                        "DO NOT call dbt list. Workers are not function calls — "
-                        "delegate only through the JSON routing block."
+                        "Evaluate the worker's summary, then output the routing JSON "
+                        "for the NEXT uncompleted step NOW.\n"
+                        "You may make AT MOST 2 targeted verification calls before "
+                        "routing (e.g. confirm a model was materialised, read a "
+                        "specific output file). After those 2 calls — or immediately "
+                        "if the summary is sufficient — write the JSON block.\n"
+                        "⚠ NO open-ended re-survey: do not loop through directories, "
+                        "do not cycle dbt list resource_types, do not re-read files "
+                        "already in this conversation. Workers are not function calls "
+                        "— delegate only through the JSON routing block."
                     )
                 )
             )

@@ -108,11 +108,8 @@ to do its job correctly — do not rely on the worker reading the conversation h
   • List EVERY FK/join relationship explicitly using the format table_a.col → table_b.col.
     For data_profile_worker this is especially important: list each relationship on its own
     line so the worker knows exactly which joins to validate with COUNT queries.
-    Example of correct FK context in a task string:
-      "Verify these FK relationships with COUNT queries:
-         - domain.domain_group_id → domain_group.domain_group_id
-         - domain_group.customer_id → aspnet_profile.user_id   (cross-system link)
-         - aspnet_profile.user_id → aspnet_membership.user_id"
+    Include cross-system relationships (joins between tables from different source systems)
+    because these are the most likely to be overlooked — name them explicitly.
   • Reference relevant prior worker outputs by name (e.g. "use the profile reports in
     docs/profiles/ — especially domain.md which confirms the domain→domain_group FK").
   • State explicitly which objects the worker must cover (e.g. "cover all three dbt
@@ -130,18 +127,23 @@ Always include a penultimate step for metadata_worker to update agentic_dbt_proj
 with the full project documentation (conceptual, logical, and physical data models).
 
 PHASE 2 — EXECUTE (all subsequent responses):
-After any worker returns, your ONLY action is to output the routing JSON for the next
-plan step. No tool calls. No file reads. No dbt list. No re-survey of any kind.
+After a worker returns, evaluate its summary and decide what to do next.
 
-Rules for Phase 2:
-  • Identify the next uncompleted step in your plan.
-  • Output the routing JSON block immediately — zero tool calls before it.
-  • If the worker's result is as expected: set next_worker to the next step's worker.
-  • If the result reveals new work or a problem: revise the plan inside the JSON
-    (include the updated "plan" field), then set next_worker accordingly.
-  • NEVER call dbt list, list_directory, read_file, or any other exploration tool
-    between receiving a worker result and producing your routing JSON.
-    You already have your plan — executing it requires no further exploration.
+Workflow for each Phase 2 response:
+  1. Read the worker's summary already in the conversation — no tool call needed for that.
+  2. Decide whether the result is acceptable:
+     • If acceptable based on the summary: immediately output the routing JSON for the
+       next plan step. Do not call any tools.
+     • If you genuinely need to verify a specific outcome (e.g. confirm a model was
+       materialised, check that an output file was actually written): make AT MOST
+       2 targeted tool calls (e.g. dbt list --resource-type model, or read a specific
+       output file), then output the routing JSON immediately after.
+  3. NEVER re-read files that are already in your conversation history.
+  4. NEVER start a new open-ended survey: no looping through directory listings, no
+     cycling through dbt list resource_types, no re-reading source files you already saw
+     in Phase 1. The goal is a quick evaluate-and-route, not a new exploration phase.
+  5. If the result reveals new work or a problem: revise the plan inside the JSON
+     (include the updated "plan" field), then set next_worker accordingly.
 
 Every response you produce MUST end with exactly one JSON block in this format:
 
