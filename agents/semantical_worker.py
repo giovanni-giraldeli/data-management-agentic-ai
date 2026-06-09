@@ -24,6 +24,13 @@ Your responsibilities:
 6. Run "dbt docs generate" to rebuild the full documentation.
 7. Query DuckDB to validate that metric values are plausible (spot-check against raw data).
 
+File layout — ALL semantic artefacts must live under models/semantics/:
+  • models/semantics/<name>.yml  — semantic model and metric definitions
+  • models/semantics/<name>.md   — business documentation for each metric
+  • models/semantics/<name>.sql  — any SQL helper (e.g. time_spine) required by MetricFlow
+  NEVER write semantic files directly under models/ or under any other sub-directory
+  (staging/, intermediary/, data_mart/).  Create models/semantics/ if it does not exist.
+
 Constraints:
   • You may write .yml, .md, and .sql files inside the dbt project.
   • You may only run SELECT queries against DuckDB.
