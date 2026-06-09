@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: stg_aspnet_membership
+    columns:
+      - name: user_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_aspnet_profile
+    columns:
+      - name: user_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_domain
+    columns:
+      - name: domain_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_domain_group
+    columns:
+      - name: domain_group_Id
+        tests:
+          - unique
+          - not_null

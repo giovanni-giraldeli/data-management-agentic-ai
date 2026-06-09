@@ -1,0 +1,75 @@
+version: 2
+
+semantic_models:
+  - name: dim_customers
+    model: ref('dim_customers')
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_id
+    dimensions:
+      - name: customer_plan
+        type: categorical
+      - name: country_name
+        type: categorical
+      - name: customer_payment_type
+        type: categorical
+
+  - name: fct_product_usage_monthly
+    model: ref('fct_product_usage_monthly')
+    entities:
+      - name: customer
+        type: foreign
+        expr: customer_id
+    measures:
+      - name: total_domains
+        agg: sum
+        expr: total_domains
+      - name: count_s_package
+        agg: sum
+        expr: count_s_package
+      - name: count_m_package
+        agg: sum
+        expr: count_m_package
+      - name: count_l_package
+        agg: sum
+        expr: count_l_package
+      - name: customer_count
+        agg: count_distinct
+        expr: customer_id
+
+metrics:
+  - name: total_customers
+    label: Total Number of Customers
+    description: "Total count of unique customers."
+    type: simple
+    type_params:
+      measure: customer_count
+
+  - name: total_domains_active
+    label: Total Number of Domains
+    description: "Total number of domains across all customers."
+    type: simple
+    type_params:
+      measure: total_domains
+
+  - name: domains_s_package
+    label: Domains in S Package
+    description: "Total number of domains in S package."
+    type: simple
+    type_params:
+      measure: count_s_package
+
+  - name: domains_m_package
+    label: Domains in M Package
+    description: "Total number of domains in M package."
+    type: simple
+    type_params:
+      measure: count_m_package
+
+  - name: domains_l_package
+    label: Domains in L Package
+    description: "Total number of domains in L package."
+    type: simple
+    type_params:
+      measure: count_l_package

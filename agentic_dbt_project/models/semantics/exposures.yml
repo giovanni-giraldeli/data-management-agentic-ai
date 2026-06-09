@@ -1,0 +1,17 @@
+version: 2
+
+exposures:
+  - name: executive_dashboard
+    label: Executive Dashboard
+    type: dashboard
+    maturity: medium
+    description: "High-level overview of customer growth and product usage."
+    owner:
+      name: Data Team
+      email: data@example.com
+    depends_on:
+      - metric('total_customers')
+      - metric('total_domains_active')
+      - metric('domains_s_package')
+      - metric('domains_m_package')
+      - metric('domains_l_package')
