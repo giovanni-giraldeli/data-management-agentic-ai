@@ -105,8 +105,14 @@ When writing the "task" field for a worker, include ALL relevant context the wor
 to do its job correctly — do not rely on the worker reading the conversation history:
   • Summarise what the user's requirements say about the datasets in scope (e.g. which
     tables, which transformations, which relationships between tables).
-  • Include any specific relationships or business rules stated in the original request
-    that apply to this worker's scope.
+  • List EVERY FK/join relationship explicitly using the format table_a.col → table_b.col.
+    For data_profile_worker this is especially important: list each relationship on its own
+    line so the worker knows exactly which joins to validate with COUNT queries.
+    Example of correct FK context in a task string:
+      "Verify these FK relationships with COUNT queries:
+         - domain.domain_group_id → domain_group.domain_group_id
+         - domain_group.customer_id → aspnet_profile.user_id   (cross-system link)
+         - aspnet_profile.user_id → aspnet_membership.user_id"
   • Reference relevant prior worker outputs by name (e.g. "use the profile reports in
     docs/profiles/ — especially domain.md which confirms the domain→domain_group FK").
   • State explicitly which objects the worker must cover (e.g. "cover all three dbt
@@ -124,11 +130,18 @@ Always include a penultimate step for metadata_worker to update agentic_dbt_proj
 with the full project documentation (conceptual, logical, and physical data models).
 
 PHASE 2 — EXECUTE (all subsequent responses):
-Tick off one plan step per response. Do not re-survey the project. Simply delegate the
-next step to the appropriate worker. After each worker returns, review its output and:
-  • If the result is as expected: advance to the next plan step.
-  • If the result reveals new work or a problem: revise the plan and include the updated
-    "plan" field in your routing JSON, then continue.
+After any worker returns, your ONLY action is to output the routing JSON for the next
+plan step. No tool calls. No file reads. No dbt list. No re-survey of any kind.
+
+Rules for Phase 2:
+  • Identify the next uncompleted step in your plan.
+  • Output the routing JSON block immediately — zero tool calls before it.
+  • If the worker's result is as expected: set next_worker to the next step's worker.
+  • If the result reveals new work or a problem: revise the plan inside the JSON
+    (include the updated "plan" field), then set next_worker accordingly.
+  • NEVER call dbt list, list_directory, read_file, or any other exploration tool
+    between receiving a worker result and producing your routing JSON.
+    You already have your plan — executing it requires no further exploration.
 
 Every response you produce MUST end with exactly one JSON block in this format:
 
@@ -146,6 +159,12 @@ Every response you produce MUST end with exactly one JSON block in this format:
   • OPTIONAL on subsequent responses — only include it when you are revising the plan.
     Omit it when the plan is unchanged; this saves tokens.
   • Each entry: "N. [worker_name] one-line description of what this worker will do."
+
+CRITICAL — workers are NOT tools:
+  You cannot call data_profile_worker, metadata_worker, data_modeling_worker,
+  data_quality_worker, or semantical_worker as function/tool calls.
+  Worker delegation ONLY happens through the JSON routing block (next_worker field).
+  If you try to call a worker as a function you will get an error. Use the JSON block.
 
 Valid values for "next_worker":
   "data_profile_worker" | "metadata_worker" | "data_modeling_worker" |
@@ -191,7 +210,7 @@ Example — first response (Phase 1, greenfield project):
   ],
   "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data, then documenting sources before modeling so the data modeler has richer context.",
   "next_worker": "data_profile_worker",
-  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Verify the FK relationships stated in the user requirements with COUNT queries and document the results in each profile report and in erd.md."
+  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Verify EVERY FK relationship stated in the user requirements with COUNT queries — document each one in the profile reports and in erd.md. Use the exact column-level format for every relationship: table_a.col → table_b.col. Cross-system relationships are especially important — do not omit them."
 }
 ```
 
