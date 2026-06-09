@@ -45,7 +45,7 @@ from typing import Annotated, Any, List, Literal, get_args
 from uuid import uuid4
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -210,6 +210,100 @@ def _extract_planner_decision(content: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Deduplicating ToolNode — prevents Planner exploration loops
+# ---------------------------------------------------------------------------
+
+# Filesystem tools whose results are static within one pipeline run: calling
+# list_directory or read_file on the same path twice can never yield new
+# information.  We deduplicate these calls so that an exact repeat is blocked
+# and the LLM receives a clear "you already have this — write your plan"
+# message instead of silently re-executing and looping forever.
+#
+# Database / dbt tools (dbt list, duckdb_list_tables, …) are NOT deduplicated
+# because their results change during the pipeline as workers materialise models.
+_DEDUP_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_directory"})
+
+
+class _DeduplicatingToolNode(ToolNode):
+    """ToolNode that blocks exact-duplicate filesystem tool calls.
+
+    On the first call to read_file or list_directory with a given set of
+    arguments, the tool executes normally and the result is cached.  Any
+    subsequent call with the *identical* (tool_name, args) pair returns an
+    error-style ToolMessage telling the LLM it already has the result and
+    should stop exploring and write its plan.
+
+    Only filesystem tools are deduplicated; MCP tools that reflect changing
+    warehouse/project state (dbt list, duckdb_list_tables, …) execute every
+    time so the Planner can see newly-materialised models after a worker runs.
+    """
+
+    def __init__(self, tools: list, **kwargs) -> None:
+        super().__init__(tools, **kwargs)
+        self._seen: set[str] = set()
+
+    def _call_key(self, tc: dict) -> str:
+        return json.dumps(
+            {"name": tc["name"], "args": tc.get("args", {})},
+            sort_keys=True,
+            default=str,
+        )
+
+    async def ainvoke(self, input: Any, config: RunnableConfig | None = None, **kwargs: Any) -> Any:  # noqa: ANN401
+        messages = input.get("messages", []) if isinstance(input, dict) else list(input)
+        if not messages:
+            return await super().ainvoke(input, config, **kwargs)
+
+        last = messages[-1]
+        tool_calls: list[dict] = getattr(last, "tool_calls", None) or []
+
+        blocked: list[ToolMessage] = []
+        new_calls: list[dict] = []
+
+        for tc in tool_calls:
+            if tc["name"] not in _DEDUP_TOOL_NAMES:
+                new_calls.append(tc)
+                continue
+            key = self._call_key(tc)
+            if key in self._seen:
+                blocked.append(
+                    ToolMessage(
+                        content=(
+                            f"[DUPLICATE CALL BLOCKED] You already called "
+                            f"'{tc['name']}' with these exact parameters earlier "
+                            "in this session and the result will not change. "
+                            "You have enough information — stop exploring and "
+                            "write your plan JSON now."
+                        ),
+                        tool_call_id=tc["id"],
+                        status="error",
+                    )
+                )
+            else:
+                self._seen.add(key)
+                new_calls.append(tc)
+
+        # All calls were duplicates — return the blocked messages directly.
+        if not new_calls:
+            return {"messages": blocked}
+
+        # No duplicates — normal execution.
+        if not blocked:
+            return await super().ainvoke(input, config, **kwargs)
+
+        # Mixed: run the new calls normally, then append the blocked messages.
+        modified = last.model_copy(update={"tool_calls": new_calls})
+        modified_input = (
+            {**input, "messages": messages[:-1] + [modified]}
+            if isinstance(input, dict)
+            else messages[:-1] + [modified]
+        )
+        result = await super().ainvoke(modified_input, config, **kwargs)
+        result_msgs = result.get("messages", []) if isinstance(result, dict) else list(result)
+        return {"messages": result_msgs + blocked}
+
+
+# ---------------------------------------------------------------------------
 # Graph builder
 # ---------------------------------------------------------------------------
 
@@ -277,15 +371,18 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # Planner node — supervisor that routes to workers
     # -----------------------------------------------------------------------
 
-    # Wrap all tool lists in ToolNode with handle_tool_errors=True so that any
-    # exception raised by a tool (e.g. FileNotFoundError from get_lineage_dev when
-    # manifest.json does not exist) is caught and returned to the LLM as a
-    # ToolMessage with status="error" instead of propagating up and crashing the
-    # agent.  Without this, a single bad tool call silently terminates the pipeline
-    # with an "Unexpected Planner error" message.
+    # The Planner uses a _DeduplicatingToolNode which:
+    #   1. Blocks exact-duplicate read_file / list_directory calls and returns a
+    #      "you already have this — write your plan" ToolMessage, preventing the
+    #      Planner from looping endlessly over the same filesystem paths.
+    #   2. Handles tool errors gracefully (handle_tool_errors=True) so exceptions
+    #      such as FileNotFoundError from get_lineage_dev are returned as ToolMessages
+    #      instead of crashing the pipeline.
+    # Workers use a plain ToolNode with error handling only — deduplication is not
+    # needed there because workers execute a focused task, not open-ended exploration.
     planner_agent = create_react_agent(
         llm,
-        ToolNode(planner_tools, handle_tool_errors=True),
+        _DeduplicatingToolNode(planner_tools, handle_tool_errors=True),
         prompt=PLANNER_SYSTEM_PROMPT,
     )
 
