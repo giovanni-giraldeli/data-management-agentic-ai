@@ -1,33 +1,33 @@
 sources:
   - name: domains
-    description: Backend raw data for the domain events
+    description: Backend raw data for domain events and group associations.
     database: dev
     schema: main
     tables:
       - name: domain
-        description: Contains the domain events over time
+        description: Large fact table containing domain events over time. Contains 8.2M rows.
         columns:
           - name: domain_id
-            description: Unique identifier of the domain
+            description: Unique identifier for the domain.
           - name: domain_group_id
-            description: Unique identifier of the domain group
+            description: Foreign key linking to the domain_group table.
           - name: full_subpage_count
-            description: The number of subpages for the domain
+            description: The total count of subpages associated with the domain.
           - name: is_temp_domains
-            description: A flag to indicate if the domain is temporary
+            description: Flag (0 or 1) indicating if the domain is classified as temporary.
           - name: dw_valid_from
-            description: The timestamp from which the record is valid in the data warehouse
+            description: The start date of the period for which this record version is valid.
           - name: dw_valid_to
-            description: The timestamp until which the record is valid in the data warehouse
+            description: The end date of the period for which this record version is valid.
 
       - name: domain_group
-        description: Associates each domain group with their respective customer
+        description: Associates domain groups with their respective customers. Contains 1M rows.
         columns:
           - name: domain_group_id
-            description: Unique identifier of the domain group
+            description: Unique identifier for the domain group.
           - name: customer_id
-            description: Unique identifier of a customer
+            description: Unique identifier for the customer associated with this group.
           - name: dw_valid_from
-            description: The timestamp from which the record is valid in the data warehouse
+            description: The start date of the period for which this record version is valid.
           - name: dw_valid_to
-            description: The timestamp until which the record is valid in the data warehouse
+            description: The end date of the period for which this record version is valid.

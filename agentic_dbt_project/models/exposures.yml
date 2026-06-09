@@ -1,0 +1,14 @@
+version: 2
+
+exposures:
+  - name: executive_dashboard
+    label: Executive Dashboard
+    type: dashboard
+    maturity: medium
+    description: "High-level dashboard tracking customer growth and product usage."
+    depends_on:
+      - ref('dim_customers')
+      - ref('fct_product_usage_snapshots')
+    owner:
+      name: Data Team
+      email: data@example.com

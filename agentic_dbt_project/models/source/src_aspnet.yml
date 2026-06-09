@@ -1,48 +1,48 @@
 sources:
   - name: aspnet
-    description: Backend raw data from customers information
+    description: Backend raw data containing customer membership and profile information.
     database: dev
     schema: main
     tables:
 
       - name: aspnet_membership
-        description: Has the date when the customer was created
+        description: Historical record of customer membership status. Contains 1.3M rows, tracking changes over time.
         columns:
           - name: user_id
-            description: The unique identifier of a user
+            description: Unique identifier for the user. Note that this is not unique per row as the table tracks historical changes.
           - name: user_create_time
-            description: The datetime that the user was created in the system
+            description: The exact timestamp when the user account was created in the system.
           - name: dw_valid_from
-            description: The timestamp from which the record is valid in the data warehouse
+            description: The start date of the period for which this record version is valid.
           - name: dw_valid_to
-            description: The timestamp until which the record is valid in the data warehouse
+            description: The end date of the period for which this record version is valid.
 
       - name: aspnet_profile
-        description: Contains details about the customer
+        description: Contains detailed user demographic and payment profile information. 419k rows.
         columns:
           - name: user_id
-            description: The unique identifier of a user
+            description: Unique identifier for the user.
           - name: address_country_code
-            description: The ISO 2 digit country code where the customer is located
+            description: ISO 2-digit country code representing the user's registered location. 245 distinct values.
           - name: payment_currency
-            description: The currency associated with the user payment method
+            description: The currency code used for the user's payment method. 150 distinct values.
           - name: payment_card_expiration_date
-            description: The expiration date for the card
+            description: The expiration date of the payment card on file.
           - name: payment_card_type
-            description: The brand of the card
+            description: The brand or type of the payment card (e.g., Visa, Mastercard). 15 distinct values.
           - name: payment_data_completed
-            description: Indicates if the payment method data is complete
+            description: Boolean flag indicating if the user's payment method information is fully provided and verified.
           - name: user_language
-            description: User language in the application
+            description: The preferred language of the user within the application. 50 distinct values.
           - name: wants_newsletter
-            description: Indicates if the user wants to receive the newsletter
+            description: Boolean flag indicating if the user has opted in to receive marketing newsletters.
           - name: company_size
-            description: Bins of the company size
+            description: Categorical bin representing the size of the user's company.
           - name: customer_plan
-            description: The type of the plan associated with the user
+            description: The subscription plan tier assigned to the user. 20 distinct values.
           - name: customer_payment_type
-            description: Indicates the payment method associated with the user
+            description: The type of payment method associated with the user account.
           - name: dw_valid_from
-            description: The timestamp from which the record is valid in the data warehouse
+            description: The start date of the period for which this record version is valid.
           - name: dw_valid_to
-            description: The timestamp until which the record is valid in the data warehouse
+            description: The end date of the period for which this record version is valid.

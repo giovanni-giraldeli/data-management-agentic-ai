@@ -1,0 +1,61 @@
+version: 2
+
+semantic_models:
+  - name: dim_customers
+    model: ref('dim_customers')
+    defaults:
+      agg_time_dimension: user_create_time
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_id
+    dimensions:
+      - name: customer_plan
+        type: categorical
+      - name: customer_payment_type
+        type: categorical
+      - name: address_country_code
+        type: categorical
+      - name: user_create_time
+        type: time
+        type_params:
+          time_granularity: day
+
+  - name: fct_product_usage_snapshots
+    model: ref('fct_product_usage_snapshots')
+    defaults:
+      agg_time_dimension: snapshot_date
+    entities:
+      - name: customer
+        type: foreign
+        expr: customer_id
+      - name: usage
+        type: primary
+        expr: usage_id
+    dimensions:
+      - name: snapshot_date
+        type: time
+        type_params:
+          time_granularity: day
+    measures:
+      - name: full_subpage_count
+        agg: sum
+        expr: full_subpage_count
+      - name: customer_count
+        agg: count_distinct
+        expr: customer_id
+
+metrics:
+  - name: total_subpage_usage
+    label: Total Subpage Usage
+    description: "The total count of subpages across all customer domains."
+    type: simple
+    type_params:
+      measure: full_subpage_count
+
+  - name: active_customer_count
+    label: Active Customer Count
+    description: "The number of unique customers with recorded usage."
+    type: simple
+    type_params:
+      measure: customer_count
