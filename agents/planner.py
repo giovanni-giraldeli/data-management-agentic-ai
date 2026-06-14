@@ -122,38 +122,36 @@ When delegating to data_modeling_worker, the "task" field MUST include all of th
 Missing any one is the most common cause of incorrect SQL in the generated models.
 
   a. Exact business rules with verbatim values from the requirements:
-     • Filter conditions for SCD tables — copy the sentinel value from the profiler reports.
-       Example: "active records filter: dw_valid_to = '9999-12-31'".
-     • Exact numeric thresholds — copy the numbers directly from the spec, never paraphrase.
-       Wrong: "small/medium/large packages." Right: "Small ≤ 500 | Medium 501–5000 | Large > 5000."
-     • Derivation rule for every calculated field. Example:
-       "cancel_date = MAX(dw_valid_to) for customers with no currently active record."
+     • Any filter conditions used to select rows (e.g. active-record flags, status codes,
+       date boundaries) — copy the exact values from the profiler reports or requirements.
+     • Exact numeric thresholds and categorisation cutoffs — never paraphrase.
+       Wrong: "classify orders by size." Right: "Small: amount < 100 | Medium: 100–1 000 | Large: > 1 000."
+     • Derivation rule for every calculated field — name the field, the source columns,
+       and the exact formula or condition.
 
-  b. Architecture — distinguish how each model handles SCD history:
-     • Current-only models (Type 1 dimensions — no history needed):
-       "dim_customers: filter staging WHERE dw_valid_to = '9999-12-31'."
-     • Full-history models (fact tables that must reflect state at a point in time):
-       "fct_product_usage_monthly: DO NOT pre-filter staging to current records.
-       Staging must preserve ALL SCD records so the fact can capture historical state."
-     Without this distinction the modeler defaults to filtering everything to current
-     records, producing a fact table that has no real history.
+  b. Data architecture — how each model selects and filters its source rows:
+     • Does this model need the current state of entities only, or must it reflect
+       state at a point in the past?
+       Current-state models (e.g. dimensions, reference tables): staging should include
+       only the latest or active version of each entity.
+       Point-in-time models (e.g. historical facts, period snapshots): staging must
+       preserve the full row history for each entity so the model can reconstruct
+       past state at any date. If the source tracks changes over time (e.g. with
+       valid_from/valid_to columns, an is_current flag, or a status lifecycle), make
+       explicit which rows each model needs — the modeler should not guess.
+     • Any other row-level filter logic derived from the requirements (deleted records,
+       status exclusions, date ranges, etc.).
 
-  c. SCD snapshot join pattern — required whenever any fact needs historical data:
-     An entity is active at end-of-month M when:
-       entity.dw_valid_from <= LAST_DAY(M)
-       AND (entity.dw_valid_to > LAST_DAY(M) OR entity.dw_valid_to = '<sentinel>')
-     Specify the exact sentinel value from the profiler reports (e.g. '9999-12-31').
+  c. Expected output for each model:
+     State the grain (the unique combination of columns that identifies one row) and
+     an approximate expected row count as a sanity check. If the actual count differs
+     significantly, the filtering or join logic is likely wrong.
 
-  d. Expected output for each model:
-     State the grain and approximate row count rationale. If the expected row count is
-     not met, the SCD or aggregation logic is likely wrong. Example:
-     "fct_product_usage_monthly: one row per customer per calendar month.
-     24 months × ~N customers ≈ 24N rows. Same count for every month = wrong SCD logic."
-
-  e. Require the worker to report back in its summary:
-     • The exact SCD filter / snapshot join condition it used (if a fact was created).
-     • The exact values used for any business logic thresholds (e.g. S/M/L bucket cutoffs).
-     This is how you will verify correctness in Phase 2.
+  d. Require the worker to report back in its summary:
+     • The key filtering and join conditions used for each model.
+     • The exact values used for any business logic thresholds or categorisation rules.
+     This lets you verify correctness in Phase 2 by comparing reported logic against
+     the requirements.
 
 Execution planning — two-phase approach:
 
@@ -164,37 +162,38 @@ BEFORE exploring the project. Follow these sub-steps in order.
 Sub-step A — Parse outcomes (NO tool calls):
   Read the user's requirements and list every business deliverable explicitly in your
   response text before making any tool calls. For each deliverable state:
-  • Its name (e.g. "fct_product_usage_monthly").
-  • Its business purpose (e.g. "monthly domain snapshot per customer for churn analysis").
-  • Its grain (e.g. "one row per customer per calendar month").
+  • Its name.
+  • Its business purpose.
+  • Its grain (the combination of fields that uniquely identifies one row).
   • Key fields and metrics it must expose.
 
 Sub-step B — Reason backward from each outcome (NO tool calls):
   For each deliverable from Sub-step A, answer the following questions in your response text.
-  This is your specification — it becomes the instructions you pass to workers.
+  This analysis becomes the specification you pass to workers.
 
-  1. Current-only or historical?
-     • If the model reflects state TODAY only → Type 1 dimension.
-       "Staging for this model must filter to current records: dw_valid_to = '<sentinel>'."
-     • If the model must reflect past state at specific dates → SCD snapshot fact.
-       "Staging for this model must preserve ALL SCD records — do NOT pre-filter.
-       Snapshot join: dw_valid_from <= LAST_DAY(M) AND (dw_valid_to > LAST_DAY(M)
-       OR dw_valid_to = '<sentinel>')."
-     Identifying this for every model prevents the most common modeling failure: a
-     fact table that uses current-only staging and therefore has no real history.
+  1. What data does this model need?
+     • Does it reflect the current state of entities, or their state at a point in time?
+       Current-state models (e.g. dimensions, reference data) need only the latest or
+       active version of each entity from the source.
+       Point-in-time models (e.g. historical facts, period snapshots) need the full row
+       history so they can reconstruct past state — staging must NOT pre-filter to only
+       the current version. If the source tracks changes over time (e.g. via validity
+       dates, status columns, or an is_current flag), be explicit about which rows each
+       model requires. Failing to state this is the most common cause of fact tables
+       that silently contain no real history.
+     • What joins are needed, and what are the expected cardinalities?
 
   2. Exact business rules — copy verbatim from the requirements:
-     Thresholds, bucketing formulas, categorisation rules, metric definitions.
-     Do not paraphrase. Example: do NOT write "S/M/L package tiers"; write
-     "Small: full_subpage_count ≤ 500 | Medium: 501–5000 | Large: > 5000".
+     Thresholds, bucketing cutoffs, categorisation formulas, metric definitions.
+     Do not paraphrase — copy the values exactly.
 
-  3. Derived fields — specify the exact derivation:
-     Example: "cancel_date = MAX(dw_valid_to) WHERE no active record (dw_valid_to ≠
-     sentinel) exists for the customer."
+  3. Derived fields — for each calculated column, specify:
+     The field name, the source columns, and the exact formula or condition.
 
-  4. Expected row count at target grain:
-     Example: "24 months × ~N customers ≈ 24N rows. If all months have the same count,
-     the SCD snapshot logic is wrong."
+  4. Expected output at the target grain:
+     State the grain and an approximate expected row count as a sanity check.
+     If the actual count differs significantly, the filtering or aggregation logic
+     is likely wrong.
 
 Sub-step C — Survey the project (max 5 tool calls):
   Now use tools to understand current state: DuckDB tables, dbt sources/models,
@@ -253,13 +252,11 @@ original task, just the gap.
     • dbt run exited with zero model errors (warnings are acceptable).
     • Every expected model layer is present (staging, intermediary, data_mart).
     • No SQL file was written directly under models/ root.
-    • The worker's summary explicitly states:
-      - The SCD filter / snapshot join condition used (for any fact table).
-      - The exact values used for business logic thresholds (e.g. S/M/L bucket cutoffs).
-    Cross-check these reported values against the requirements in the task.
-    If they differ — even if dbt run succeeded — re-delegate with a corrective task
-    specifying the exact correct values. A passing dbt run with wrong thresholds is
-    NOT acceptable.
+    • The worker's summary explicitly states the key filtering conditions and business
+      logic values it used for each model. Cross-check these reported values against
+      the requirements in the task. If they differ — even if dbt run succeeded —
+      re-delegate with a corrective task specifying the exact correct values.
+      A passing dbt run with wrong business logic is NOT acceptable.
 
   data_quality_worker — acceptable when:
     • dbt test ran and pass/fail counts are reported per layer.
@@ -333,45 +330,46 @@ When finishing, set "task" to:
      was out of scope), list them explicitly under "Outstanding items:" so the user knows
      what remains and can take action.
 
-Example — first response (Phase 1, greenfield project with SCD sources):
+Example — first response (Phase 1, greenfield project):
 
 [Sub-step A — Desired outcomes]
-1. dim_customers — one row per customer (current state only); must include cancel_date.
-2. fct_product_usage_monthly — one row per customer per calendar month for the last 24 months;
-   must reflect domain counts as they were at each month-end, not just today's state.
-3. product_usage and churn semantic metrics — built on the data_mart layer.
+1. dim_entity — one row per entity (current state only); must include a calculated status field.
+2. fct_events_monthly — one row per entity per calendar month for the last 24 months;
+   must reflect counts as they were at each month-end, not just today's state.
+3. Semantic metrics for activity and churn — built on the data_mart layer.
 
 [Sub-step B — Backward reasoning]
-dim_customers:
-  • Current-only → Type 1 dimension. Staging filters WHERE dw_valid_to = '9999-12-31'.
-  • cancel_date = MAX(dw_valid_to) for customers who have no active record.
-  • country_name must be mapped from the raw address_country_code field.
+dim_entity:
+  • Current state only. Staging must filter to only the active/latest version of each entity.
+    The profiler will identify which column and value marks a row as current.
+  • status_label must be derived from the raw status_code using the mapping in the spec.
+  • expected rows: ~N entities (one per entity).
 
-fct_product_usage_monthly:
-  • Historical snapshot → SCD fact. Staging MUST NOT pre-filter to current records.
-  • Snapshot join: domain.dw_valid_from <= LAST_DAY(M)
-    AND (domain.dw_valid_to > LAST_DAY(M) OR domain.dw_valid_to = '9999-12-31').
-  • Package size: Small ≤ 500 subpages | Medium 501–5000 | Large > 5000.
-  • Expected rows: 24 months × ~N customers ≈ 24N rows.
-    Same domain count in every month = snapshot join is wrong.
+fct_events_monthly:
+  • Point-in-time (historical) — staging must preserve the full row history for each entity,
+    not just current rows. The model reconstructs entity state at each month-end.
+  • Key filter: an entity is active in month M if its valid_from <= last day of M
+    and its valid_to > last day of M (or is the open-ended sentinel value).
+  • event_size category: Small < 100 | Medium 100–1 000 | Large > 1 000.
+  • Expected rows: 24 months × ~N entities. If all months show the same count,
+    the point-in-time filtering logic is wrong.
 
 [Sub-step C — Survey result]
-dbt list returns only source: entries — greenfield. DuckDB has 3 source tables (customers,
-domains, domain_groups).
+dbt list returns only source: entries — greenfield. DuckDB has 2 source tables.
 
 ```json
 {
   "plan": [
-    "1. [data_profile_worker] Profile all source tables, write Markdown reports to docs/profiles/, verify FK relationships including cross-system joins",
+    "1. [data_profile_worker] Profile all source tables, write Markdown reports to docs/profiles/, verify FK relationships",
     "2. [metadata_worker] Enrich YAML descriptions for all source tables using the profile reports",
-    "3. [data_modeling_worker] Create staging (full SCD for facts, current-only for dims), intermediary, and data_mart SQL models, run dbt run",
+    "3. [data_modeling_worker] Create staging, intermediary and data_mart SQL models, run dbt run",
     "4. [data_profile_worker] Profile all newly created dbt models (staging + data_mart), update erd.md",
     "5. [metadata_worker] Enrich YAML descriptions for all new model layers, run dbt docs generate",
     "6. [data_quality_worker] Define tests for all layers (sources + staging + data_mart), run dbt test",
     "7. [semantical_worker] Build semantic models and metrics under models/semantics/, run dbt docs generate",
     "8. [metadata_worker] Update agentic_dbt_project/README.md with project overview, conceptual/logical/physical data models"
   ],
-  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data (especially sentinel values like 9999-12-31), then documenting sources before modeling so the modeler has full context.",
+  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data and surface any sentinel values, then documenting sources before modeling so the modeler has full context.",
   "next_worker": "data_profile_worker",
   "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Flag any sentinel or magic values found (e.g. extreme dates, round-number integers, null-surrogate strings) in the mandatory '⚠ Data Nuances' section of each report. Verify EVERY FK relationship stated in the user requirements with COUNT queries — document each one in the profile reports and in erd.md. Use the exact column-level format: table_a.col → table_b.col. Cross-system relationships are especially important — do not omit them."
 }
