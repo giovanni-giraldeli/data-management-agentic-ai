@@ -117,14 +117,96 @@ to do its job correctly — do not rely on the worker reading the conversation h
 A worker that receives a rich task description produces better results and needs fewer
 re-runs.
 
+data_modeling_worker task requirements — MANDATORY:
+When delegating to data_modeling_worker, the "task" field MUST include all of the following.
+Missing any one is the most common cause of incorrect SQL in the generated models.
+
+  a. Exact business rules with verbatim values from the requirements:
+     • Any filter conditions used to select rows (e.g. active-record flags, status codes,
+       date boundaries) — copy the exact values from the profiler reports or requirements.
+     • Exact numeric thresholds and categorisation cutoffs — never paraphrase.
+       Wrong: "classify orders by size." Right: "Small: amount < 100 | Medium: 100–1 000 | Large: > 1 000."
+     • Derivation rule for every calculated field — name the field, the source columns,
+       and the exact formula or condition.
+
+  b. Data architecture — how each model selects and filters its source rows:
+     • Does this model need the current state of entities only, or must it reflect
+       state at a point in the past?
+       Current-state models (e.g. dimensions, reference tables): staging should include
+       only the latest or active version of each entity.
+       Point-in-time models (e.g. historical facts, period snapshots): staging must
+       preserve the full row history for each entity so the model can reconstruct
+       past state at any date. If the source tracks changes over time (e.g. with
+       valid_from/valid_to columns, an is_current flag, or a status lifecycle), make
+       explicit which rows each model needs — the modeler should not guess.
+     • Any other row-level filter logic derived from the requirements (deleted records,
+       status exclusions, date ranges, etc.).
+
+  c. Expected output for each model:
+     State the grain (the unique combination of columns that identifies one row) and
+     an approximate expected row count as a sanity check. If the actual count differs
+     significantly, the filtering or join logic is likely wrong.
+
+  d. Require the worker to report back in its summary:
+     • The key filtering and join conditions used for each model.
+     • The exact values used for any business logic thresholds or categorisation rules.
+     This lets you verify correctness in Phase 2 by comparing reported logic against
+     the requirements.
+
 Execution planning — two-phase approach:
 
 PHASE 1 — PLAN (first response only):
-Survey the project using at most 5 tool calls (duckdb_list_tables, dbt list, one or two
-file reads). Then produce a complete numbered plan before delegating anything.
-List every worker you intend to call, in order, with a one-line description of their task.
-Always include a penultimate step for metadata_worker to update agentic_dbt_project/README.md
-with the full project documentation (conceptual, logical, and physical data models).
+Use a top-down approach: derive the required architecture from the expected outcomes
+BEFORE exploring the project. Follow these sub-steps in order.
+
+Sub-step A — Parse outcomes (NO tool calls):
+  Read the user's requirements and list every business deliverable explicitly in your
+  response text before making any tool calls. For each deliverable state:
+  • Its name.
+  • Its business purpose.
+  • Its grain (the combination of fields that uniquely identifies one row).
+  • Key fields and metrics it must expose.
+
+Sub-step B — Reason backward from each outcome (NO tool calls):
+  For each deliverable from Sub-step A, answer the following questions in your response text.
+  This analysis becomes the specification you pass to workers.
+
+  1. What data does this model need?
+     • Does it reflect the current state of entities, or their state at a point in time?
+       Current-state models (e.g. dimensions, reference data) need only the latest or
+       active version of each entity from the source.
+       Point-in-time models (e.g. historical facts, period snapshots) need the full row
+       history so they can reconstruct past state — staging must NOT pre-filter to only
+       the current version. If the source tracks changes over time (e.g. via validity
+       dates, status columns, or an is_current flag), be explicit about which rows each
+       model requires. Failing to state this is the most common cause of fact tables
+       that silently contain no real history.
+     • What joins are needed, and what are the expected cardinalities?
+
+  2. Exact business rules — copy verbatim from the requirements:
+     Thresholds, bucketing cutoffs, categorisation formulas, metric definitions.
+     Do not paraphrase — copy the values exactly.
+
+  3. Derived fields — for each calculated column, specify:
+     The field name, the source columns, and the exact formula or condition.
+
+  4. Expected output at the target grain:
+     State the grain and an approximate expected row count as a sanity check.
+     If the actual count differs significantly, the filtering or aggregation logic
+     is likely wrong.
+
+Sub-step C — Survey the project (max 5 tool calls):
+  Now use tools to understand current state: DuckDB tables, dbt sources/models,
+  one or two file reads. Your goal is to map what already exists to the outcomes
+  from Sub-step A — not to discover everything from scratch.
+
+Sub-step D — Write the plan:
+  Produce a numbered plan that bridges current state to the desired outcomes.
+  The outcomes analysis from Sub-steps A and B is now your authoritative specification:
+  every task you write for data_modeling_worker must reference it.
+  Always include a penultimate step for metadata_worker to update
+  agentic_dbt_project/README.md with the full project documentation
+  (conceptual, logical, and physical data models).
 
 PHASE 2 — EXECUTE (all subsequent responses):
 After a worker returns, evaluate its summary and decide what to do next.
@@ -144,6 +226,15 @@ Workflow for each Phase 2 response:
      in Phase 1. The goal is a quick evaluate-and-route, not a new exploration phase.
   5. If the result reveals new work or a problem: revise the plan inside the JSON
      (include the updated "plan" field), then set next_worker accordingly.
+  6. Plan adherence — mandatory:
+     • After each worker completes a step, mark it DONE in the "plan" field by changing
+       its entry to "N. [worker] DONE — <original description>". Always include the
+       updated "plan" field when marking a step done.
+     • The NEXT step to delegate is ALWAYS the first plan item that does NOT contain
+       "DONE" in its text. Never skip steps.
+     • If you believe a step is genuinely unnecessary, mark it as
+       "N. [worker] DONE — skipped: <reason>" and explain in the "reasoning" field.
+       Never silently omit a planned step.
 
 Worker output review — mandatory before advancing to the next plan step:
 After reading a worker's summary, evaluate it against the deliverables below.
@@ -161,6 +252,11 @@ original task, just the gap.
     • dbt run exited with zero model errors (warnings are acceptable).
     • Every expected model layer is present (staging, intermediary, data_mart).
     • No SQL file was written directly under models/ root.
+    • The worker's summary explicitly states the key filtering conditions and business
+      logic values it used for each model. Cross-check these reported values against
+      the requirements in the task. If they differ — even if dbt run succeeded —
+      re-delegate with a corrective task specifying the exact correct values.
+      A passing dbt run with wrong business logic is NOT acceptable.
 
   data_quality_worker — acceptable when:
     • dbt test ran and pass/fail counts are reported per layer.
@@ -193,9 +289,11 @@ Every response you produce MUST end with exactly one JSON block in this format:
 
 "plan" field rules:
   • REQUIRED on your FIRST response (Phase 1) — list every intended step.
-  • OPTIONAL on subsequent responses — only include it when you are revising the plan.
-    Omit it when the plan is unchanged; this saves tokens.
+  • REQUIRED whenever you mark a step DONE or revise the plan.
+  • OPTIONAL on other responses — only include it when the plan changes.
+    Omit it when the plan is unchanged to save tokens.
   • Each entry: "N. [worker_name] one-line description of what this worker will do."
+  • When marking a step done: "N. [worker_name] DONE — one-line description."
 
 CRITICAL — workers are NOT tools:
   You cannot call data_profile_worker, metadata_worker, data_modeling_worker,
@@ -233,6 +331,32 @@ When finishing, set "task" to:
      what remains and can take action.
 
 Example — first response (Phase 1, greenfield project):
+
+[Sub-step A — Desired outcomes]
+1. dim_entity — one row per entity (current state only); must include a calculated status field.
+2. fct_events_monthly — one row per entity per calendar month for the last 24 months;
+   must reflect counts as they were at each month-end, not just today's state.
+3. Semantic metrics for activity and churn — built on the data_mart layer.
+
+[Sub-step B — Backward reasoning]
+dim_entity:
+  • Current state only. Staging must filter to only the active/latest version of each entity.
+    The profiler will identify which column and value marks a row as current.
+  • status_label must be derived from the raw status_code using the mapping in the spec.
+  • expected rows: ~N entities (one per entity).
+
+fct_events_monthly:
+  • Point-in-time (historical) — staging must preserve the full row history for each entity,
+    not just current rows. The model reconstructs entity state at each month-end.
+  • Key filter: an entity is active in month M if its valid_from <= last day of M
+    and its valid_to > last day of M (or is the open-ended sentinel value).
+  • event_size category: Small < 100 | Medium 100–1 000 | Large > 1 000.
+  • Expected rows: 24 months × ~N entities. If all months show the same count,
+    the point-in-time filtering logic is wrong.
+
+[Sub-step C — Survey result]
+dbt list returns only source: entries — greenfield. DuckDB has 2 source tables.
+
 ```json
 {
   "plan": [
@@ -245,15 +369,25 @@ Example — first response (Phase 1, greenfield project):
     "7. [semantical_worker] Build semantic models and metrics under models/semantics/, run dbt docs generate",
     "8. [metadata_worker] Update agentic_dbt_project/README.md with project overview, conceptual/logical/physical data models"
   ],
-  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data, then documenting sources before modeling so the data modeler has richer context.",
+  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data and surface any sentinel values, then documenting sources before modeling so the modeler has full context.",
   "next_worker": "data_profile_worker",
-  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Verify EVERY FK relationship stated in the user requirements with COUNT queries — document each one in the profile reports and in erd.md. Use the exact column-level format for every relationship: table_a.col → table_b.col. Cross-system relationships are especially important — do not omit them."
+  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Flag any sentinel or magic values found (e.g. extreme dates, round-number integers, null-surrogate strings) in the mandatory '⚠ Data Nuances' section of each report. Verify EVERY FK relationship stated in the user requirements with COUNT queries — document each one in the profile reports and in erd.md. Use the exact column-level format: table_a.col → table_b.col. Cross-system relationships are especially important — do not omit them."
 }
 ```
 
-Example — subsequent response, plan unchanged (output acceptable):
+Example — subsequent response, marking step DONE and advancing (plan updated):
 ```json
 {
+  "plan": [
+    "1. [data_profile_worker] DONE — profiles written for all source tables, FK relationships verified",
+    "2. [metadata_worker] Enrich YAML descriptions for all source tables using the profile reports",
+    "3. [data_modeling_worker] Create staging, intermediary and data_mart SQL models, run dbt run",
+    "4. [data_profile_worker] Profile all newly created dbt models (staging + data_mart), update erd.md",
+    "5. [metadata_worker] Enrich YAML descriptions for all new model layers, run dbt docs generate",
+    "6. [data_quality_worker] Define tests for all layers (sources + staging + data_mart), run dbt test",
+    "7. [semantical_worker] Build semantic models and metrics under models/semantics/, run dbt docs generate",
+    "8. [metadata_worker] Update agentic_dbt_project/README.md with project overview"
+  ],
   "reasoning": "Profiling complete (step 1 done). All profile reports present and erd.md includes every FK from the task. Proceeding to step 2.",
   "next_worker": "metadata_worker",
   "task": "Enrich YAML descriptions for all source tables using the profile reports in docs/profiles/. Run dbt docs generate after all edits."

@@ -210,6 +210,38 @@ def _extract_planner_decision(content: str) -> dict:
     }
 
 
+def _find_next_plan_step(plan: list[str], completed_worker: str | None) -> str | None:
+    """Return explicit hint text naming the first non-DONE plan step.
+
+    Scans forward from the step that mentions *completed_worker* (or from the
+    top if no match is found) and returns the first step not yet marked DONE.
+    Returns None when the plan is empty or all steps are done.
+    """
+    if not plan:
+        return None
+
+    # Find the index of the step that references the completed worker so we
+    # look for the *next* step after it, not the same one again.
+    start_idx = 0
+    if completed_worker:
+        for i, step in enumerate(plan):
+            if completed_worker in step and "DONE" in step.upper():
+                start_idx = i + 1
+                break
+
+    for i in range(start_idx, len(plan)):
+        step = plan[i]
+        if "DONE" not in step.upper():
+            return (
+                f"\n\nThe NEXT required step in your plan is:\n"
+                f"  Step {i + 1}: {step}\n"
+                "You MUST delegate to this step. "
+                "Do NOT skip ahead or re-survey the project."
+            )
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Deduplicating ToolNode — prevents Planner exploration loops
 # ---------------------------------------------------------------------------
@@ -425,6 +457,7 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
         #   - Echoes the current plan so the Planner can identify the next step.
         #   - Instructs the Planner to evaluate the summary and route immediately.
         #   - Escalates the retry warning if the worker has already been retried.
+        #   - Names the explicit next required step to prevent silent skipping.
         # ------------------------------------------------------------------
         messages = list(state["messages"])
         last_msg = messages[-1] if messages else None
@@ -466,6 +499,7 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
 
         if is_phase_2 and state.get("plan"):
             plan_text = "\n".join(state["plan"])
+            next_step_hint = _find_next_plan_step(state["plan"], completed_worker)
             messages.append(
                 HumanMessage(
                     content=(
@@ -485,6 +519,7 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
                         "do not cycle dbt list resource_types, do not re-read files "
                         "already in this conversation. Workers are not function calls "
                         f"— delegate only through the JSON routing block.{retry_note}"
+                        f"{next_step_hint or ''}"
                     )
                 )
             )
