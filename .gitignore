@@ -21,6 +21,9 @@ agentic_dbt_project/dbt_packages/
 agentic_dbt_project/logs/
 agentic_dbt_project/dev.duckdb
 
+# dbt anonymous telemetry ID (machine-local, generated on first run)
+profiles/.user.yml
+
 # duckdb
 *.duckdb
 *.duckdb.wal

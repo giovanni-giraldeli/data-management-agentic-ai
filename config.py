@@ -15,6 +15,26 @@ BASE_DIR = Path(__file__).parent
 # ---------------------------------------------------------------------------
 LLM_MODEL: str = os.getenv("LLM_MODEL", "google_genai/gemini-2.5-flash")
 LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0"))
+# Maximum tokens the LLM may generate per response.  Set a reasonable cap
+# (default 4096) so that providers like OpenRouter do not reserve the model's
+# full theoretical context window against your credit balance upfront.
+# Increase if a worker's output is being truncated; set to 0 to use the
+# provider default (not recommended with OpenRouter free-tier models).
+_max_tokens_env = os.getenv("LLM_MAX_TOKENS", "4096")
+LLM_MAX_TOKENS: int | None = int(_max_tokens_env) if _max_tokens_env.strip() != "0" else None
+# Maximum LLM requests per minute across all agents.  Set to the limit of your
+# API tier so the pipeline never exceeds it.  The InMemoryRateLimiter queues
+# requests proactively, so the API never sees a 429.
+# Examples: Gemini AI Studio free tier = 15, paid tier = 2000, 0 = unlimited.
+LLM_RPM_LIMIT: int = int(os.getenv("LLM_RPM_LIMIT", "0"))
+
+# Hard cap on the number of LangGraph steps the Planner's inner ReAct agent
+# may take per invocation.  Each tool call costs 2 steps (one LLM step + one
+# tool-execution step), so the default of 25 allows ~12 tool calls before
+# LangGraph raises GraphRecursionError and the Planner node falls back to a
+# FINISH decision.  Raise this only if the Planner legitimately needs more
+# exploration on very large projects.
+PLANNER_MAX_STEPS: int = int(os.getenv("PLANNER_MAX_STEPS", "40"))
 
 # ---------------------------------------------------------------------------
 # DuckDB

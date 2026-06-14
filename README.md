@@ -31,12 +31,12 @@ Each agent has strictly scoped tool access (principle of least privilege, thesis
 
 | Agent | DuckDB | dbt commands | File writes |
 |---|---|---|---|
-| Planner | list_tables, describe_table | get_all_models, get_all_sources, get_lineage, ls | none |
+| Planner | list_tables, describe_table | list, get_lineage_dev | none |
 | Data Profile Worker | list, describe, query, sample | — | `.md` |
-| Metadata Worker | — | docs generate, ls, get_all_models, get_model_details, get_all_sources, get_source_details | `.yml` |
-| Data Modeling Worker | list, describe, query | run, ls, compile | `.sql` |
-| Data Quality Worker | — | test, ls, get_test_details | `.yml` |
-| Semantical Worker | list, describe, query | run, docs generate, ls, get_all_models, get_semantic_model_details, list_metrics, list_saved_queries | `.yml .md .sql` |
+| Metadata Worker | — | docs generate, list, get_node_details_dev | `.yml` |
+| Data Modeling Worker | list, describe, query | run, list, compile | `.sql` |
+| Data Quality Worker | — | test, list, get_node_details_dev | `.yml` |
+| Semantical Worker | list, describe, query | run, docs generate, list, get_node_details_dev | `.yml .md .sql` |
 
 ---
 
@@ -87,15 +87,24 @@ Supported `LLM_MODEL` values (examples):
 |---|---|---|---|
 | Google GenAI ★ | `google_genai/gemini-2.5-flash` | `langchain-google-genai` | **Free tier** via [AI Studio](https://aistudio.google.com) |
 | Google GenAI | `google_genai/gemini-2.0-flash` | `langchain-google-genai` | Free tier via AI Studio |
-| Google GenAI | `google_genai/gemini-1.5-pro` | `langchain-google-genai` | Free tier via AI Studio |
 | Anthropic | `anthropic/claude-3-5-sonnet-20241022` | `langchain-anthropic` | Requires API credits |
 | Anthropic | `anthropic/claude-3-5-haiku-20241022` | `langchain-anthropic` | Requires API credits |
-| OpenAI | `openai/gpt-4o` | `langchain-openai` | Requires API credits |
+| OpenAI | `openai/gpt-4o-mini` | `langchain-openai` | Requires API credits |
+| OpenRouter ★ | `openai/google/gemini-2.0-flash-exp:free` | `langchain-openai` | **Free tier** via [OpenRouter](https://openrouter.ai) |
+| OpenRouter | `openai/google/gemini-2.5-flash` | `langchain-openai` | Paid per token via OpenRouter |
+| OpenRouter | `openai/meta-llama/llama-3.3-70b-instruct:free` | `langchain-openai` | **Free tier** via OpenRouter |
 | Ollama (local) | `ollama/llama3.1` | `langchain-ollama` | Free, runs locally |
 
-★ **Recommended zero-cost option:** Gemini 2.5 Flash — best cost-benefit model for agentic pipelines (strong tool use, structured JSON output, and built-in reasoning). Get a free API key at [aistudio.google.com](https://aistudio.google.com), then `uv pip install langchain-google-genai`.
+★ **Recommended zero-cost option:** Gemini 2.5 Flash via [AI Studio](https://aistudio.google.com) (direct). If the AI Studio free quota is exhausted, switch to **OpenRouter** — it exposes an OpenAI-compatible API and has its own free-tier models.
 
-The system uses LangChain's `init_chat_model` with the `provider/model-name` format — the provider prefix is parsed automatically and passed as `model_provider`. Any provider whose LangChain integration package is installed will work without code changes.
+**Using OpenRouter:** set `LLM_MODEL=openai/<openrouter-model-name>` (the `openai` prefix tells LangChain which client to use), then add two extra keys to `.env`:
+```env
+OPENAI_API_KEY=sk-or-...              # your OpenRouter key
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+```
+`uv pip install langchain-openai` is the only package required.
+
+The system uses LangChain's `init_chat_model` — the provider prefix (`google_genai`, `anthropic`, `openai`, etc.) is split off and passed as `model_provider`. Any provider whose LangChain integration package is installed works without code changes.
 
 ### 3. Load source data into DuckDB
 
@@ -143,13 +152,28 @@ The pipeline will:
 
 ## Audit trail
 
-All agent interactions are appended to `audit_trail.jsonl` (path configurable via `AUDIT_LOG_PATH`). The file uses **JSON Lines** format — one JSON object per line — which is append-safe under concurrent agent execution. Each entry has the following structure:
+All agent interactions are appended to `audit_trail.jsonl` (path configurable via `AUDIT_LOG_PATH`). The file uses **JSON Lines** format — one JSON object per line — which is append-safe under concurrent agent execution.
+
+Every entry starts with `session_id` as the first field, followed by `timestamp`, `agent_id`, and `event_type`:
 
 ```jsonl
-{"timestamp": "2026-01-01T12:00:00.000000+00:00", "agent_id": "data_modeling_worker", "event_type": "tool_start", "tool_name": "run", "tool_input": "{\"model_selector\": \"dim_customers\"}"}
+{"session_id": "3f2a1b...", "timestamp": "2026-01-01T12:00:00.000000+00:00", "agent_id": "system", "event_type": "system_start", "prompt": "Profile all source tables..."}
+{"session_id": "3f2a1b...", "timestamp": "2026-01-01T12:00:01.000000+00:00", "agent_id": "data_modeling_worker", "event_type": "tool_start", "tool_name": "run", "tool_input": "{\"model_selector\": \"dim_customers\"}"}
 ```
 
-`event_type` values: `llm_start`, `llm_end`, `tool_start`, `tool_end`, `llm_error`, `tool_error`.
+`event_type` values:
+
+| Value | When | Extra fields |
+|---|---|---|
+| `system_start` | Once per session, before any agent runs | `prompt` — the user's task string |
+| `llm_start` | LLM call begins | `inputs` — prompt strings |
+| `llm_end` | LLM call returns | `outputs` — generated text |
+| `tool_start` | Tool call begins | `tool_name`, `tool_input` |
+| `tool_end` | Tool call returns | `tool_output` |
+| `llm_error` | LLM call fails | `error` |
+| `tool_error` | Tool call fails | `error` |
+
+The `session_id` field is a UUID generated once per `python main.py` invocation. Multiple runs append to the same file, so filtering by `session_id` isolates a single pipeline execution. The session ID is also printed to the console at the end of each run.
 
 > Chain events (`chain_start`/`chain_end`) are intentionally excluded — in LangGraph 1.x they fire at every level of the nested graph hierarchy and would produce dozens of duplicate entries per agent invocation.
 

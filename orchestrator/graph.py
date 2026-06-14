@@ -31,19 +31,6 @@ The graph is compiled with ``recursion_limit=MAX_GRAPH_ITERATIONS`` to prevent
 infinite Planner↔worker loops if the LLM fails to converge.  The MCP server
 startup is wrapped in ``asyncio.timeout`` with ``MCP_STARTUP_TIMEOUT`` seconds
 so a missing venv or bad path fails fast instead of hanging.
-
-Phase 2 injection
------------------
-After each worker completes, ``planner_node`` injects a ``[PHASE 2 REMINDER]``
-``HumanMessage`` into the message list before invoking the Planner agent.  The
-reminder includes the current plan and explicitly names the next required step
-(first plan entry without "DONE") to prevent the Planner from skipping steps.
-
-Worker quality review
----------------------
-``planner_node`` tracks how many times each worker has been re-delegated to via
-``retry_counts`` in ``AgentState``.  Escalating warnings are injected at count == 1
-(advisory) and count >= 2 (hard block) to enforce the re-delegation cap.
 """
 
 from __future__ import annotations
@@ -53,18 +40,18 @@ import json
 import os
 import re
 import sys
-import uuid
 from pathlib import Path
 from typing import Annotated, Any, List, Literal, get_args
+from uuid import uuid4
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import ToolNode, create_react_agent
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
@@ -80,10 +67,13 @@ from config import (
     DBT_PROFILES_DIR,
     DBT_PROJECT_DIR,
     DUCKDB_PATH,
+    LLM_MAX_TOKENS,
     LLM_MODEL,
+    LLM_RPM_LIMIT,
     LLM_TEMPERATURE,
     MCP_DBT_SERVER,
     MCP_DUCKDB_SERVER,
+    PLANNER_MAX_STEPS,
     PYTHON_EXECUTABLE,  # used by the DuckDB MCP server launch
 )
 from audit.callbacks import AuditTrailCallback
@@ -129,15 +119,8 @@ from agents.semantical_worker import (
 # worker dispatches before the pipeline is forcibly terminated.
 MAX_GRAPH_ITERATIONS: int = int(os.getenv("MAX_GRAPH_ITERATIONS", "100"))
 
-# Maximum steps for the Planner's internal ReAct loop per invocation.
-PLANNER_MAX_STEPS: int = int(os.getenv("PLANNER_MAX_STEPS", "50"))
-
 # Seconds to wait for both MCP servers to finish starting up.
 MCP_STARTUP_TIMEOUT: float = float(os.getenv("MCP_STARTUP_TIMEOUT", "30"))
-
-# Marker written at the start of every worker completion message.
-# planner_node detects this to know it is in Phase 2.
-_WORKER_COMPLETION_MARKER = "] Task completed."
 
 # ---------------------------------------------------------------------------
 # Graph state
@@ -157,7 +140,7 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     next_worker: str         # set by the planner; drives conditional routing
     current_task: str        # the specific task instruction sent to the active worker
-    plan: list[str]          # numbered plan maintained by the Planner across steps
+    plan: list[str]          # the Planner's current execution plan (steps as strings)
     retry_counts: dict[str, int]  # how many times each worker has been re-delegated to
 
 
@@ -170,7 +153,6 @@ class PlannerDecision(BaseModel):
     reasoning: str
     next_worker: WorkerName
     task: str
-    plan: list[str] | None = None  # only present when the Planner revises the plan
 
 
 # Derived from WorkerName to avoid duplication — strips out the "FINISH" sentinel.
@@ -228,28 +210,28 @@ def _extract_planner_decision(content: str) -> dict:
     }
 
 
-def _find_next_plan_step(
-    plan: list[str], completed_worker: str | None
-) -> str:
-    """Return a hint string naming the next non-DONE plan step.
+def _find_next_plan_step(plan: list[str], completed_worker: str | None) -> str | None:
+    """Return explicit hint text naming the first non-DONE plan step.
 
-    Scans forward past the first non-DONE step that mentions *completed_worker*
-    (the step that was just finished), then returns the text of the following step.
-    If *completed_worker* is None (Phase 1 → Phase 2 transition), returns the first
-    non-DONE step unconditionally.
+    Scans forward from the step that mentions *completed_worker* (or from the
+    top if no match is found) and returns the first step not yet marked DONE.
+    Returns None when the plan is empty or all steps are done.
     """
     if not plan:
-        return ""
+        return None
 
-    past_completed = completed_worker is None
+    # Find the index of the step that references the completed worker so we
+    # look for the *next* step after it, not the same one again.
+    start_idx = 0
+    if completed_worker:
+        for i, step in enumerate(plan):
+            if completed_worker in step and "DONE" in step.upper():
+                start_idx = i + 1
+                break
 
-    for i, step in enumerate(plan):
-        if "DONE" in step.upper():
-            continue
-        if not past_completed and completed_worker and completed_worker in step:
-            past_completed = True
-            continue
-        if past_completed:
+    for i in range(start_idx, len(plan)):
+        step = plan[i]
+        if "DONE" not in step.upper():
             return (
                 f"\n\nThe NEXT required step in your plan is:\n"
                 f"  Step {i + 1}: {step}\n"
@@ -257,7 +239,108 @@ def _find_next_plan_step(
                 "Do NOT skip ahead or re-survey the project."
             )
 
-    return ""  # all steps done or no match found
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Deduplicating ToolNode — prevents Planner exploration loops
+# ---------------------------------------------------------------------------
+
+# Filesystem tools whose results are static within one pipeline run: calling
+# list_directory or read_file on the same path twice can never yield new
+# information.  We deduplicate these calls so that an exact repeat is blocked
+# and the LLM receives a clear "you already have this — write your plan"
+# message instead of silently re-executing and looping forever.
+#
+# Database / dbt tools (dbt list, duckdb_list_tables, …) are NOT deduplicated
+# because their results change during the pipeline as workers materialise models.
+# "list" (dbt list MCP tool) is also deduplicated within a single Planner
+# invocation — calling `dbt list --resource-type model` and then cycling through
+# every other resource_type after receiving "OK" results adds no information.
+# Note: _seen is RESET at the start of each planner_node call (see below), so
+# dedup is per-invocation only.  After a worker runs the Planner is allowed to
+# call dbt list again (e.g. to confirm newly materialised models exist).
+_DEDUP_TOOL_NAMES: frozenset[str] = frozenset({"read_file", "list_directory", "list"})
+
+
+class _DeduplicatingToolNode(ToolNode):
+    """ToolNode that blocks exact-duplicate Planner tool calls within one invocation.
+
+    On the first call to read_file, list_directory, or list (dbt list) with a
+    given set of arguments, the tool executes normally and the key is cached in
+    _seen.  Any subsequent call with the *identical* (tool_name, args) pair
+    returns an error-style ToolMessage telling the LLM it already has the result
+    and should stop exploring and write its plan.
+
+    _seen is cleared at the start of each planner_node call so deduplication is
+    per-Planner-invocation, not per-pipeline-run.  This allows the Planner to
+    call dbt list again after a worker returns (e.g. to verify new models), while
+    still blocking endless cycling through every resource_type in a single Phase.
+    """
+
+    def __init__(self, tools: list, **kwargs) -> None:
+        super().__init__(tools, **kwargs)
+        self._seen: set[str] = set()
+
+    def _call_key(self, tc: dict) -> str:
+        return json.dumps(
+            {"name": tc["name"], "args": tc.get("args", {})},
+            sort_keys=True,
+            default=str,
+        )
+
+    async def ainvoke(self, input: Any, config: RunnableConfig | None = None, **kwargs: Any) -> Any:  # noqa: ANN401
+        messages = input.get("messages", []) if isinstance(input, dict) else list(input)
+        if not messages:
+            return await super().ainvoke(input, config, **kwargs)
+
+        last = messages[-1]
+        tool_calls: list[dict] = getattr(last, "tool_calls", None) or []
+
+        blocked: list[ToolMessage] = []
+        new_calls: list[dict] = []
+
+        for tc in tool_calls:
+            if tc["name"] not in _DEDUP_TOOL_NAMES:
+                new_calls.append(tc)
+                continue
+            key = self._call_key(tc)
+            if key in self._seen:
+                blocked.append(
+                    ToolMessage(
+                        content=(
+                            f"[DUPLICATE CALL BLOCKED] You already called "
+                            f"'{tc['name']}' with these exact parameters earlier "
+                            "in this session and the result will not change. "
+                            "You have enough information — stop exploring and "
+                            "write your plan JSON now."
+                        ),
+                        tool_call_id=tc["id"],
+                        status="error",
+                    )
+                )
+            else:
+                self._seen.add(key)
+                new_calls.append(tc)
+
+        # All calls were duplicates — return the blocked messages directly.
+        if not new_calls:
+            return {"messages": blocked}
+
+        # No duplicates — normal execution.
+        if not blocked:
+            return await super().ainvoke(input, config, **kwargs)
+
+        # Mixed: run the new calls normally, then append the blocked messages.
+        modified = last.model_copy(update={"tool_calls": new_calls})
+        modified_input = (
+            {**input, "messages": messages[:-1] + [modified]}
+            if isinstance(input, dict)
+            else messages[:-1] + [modified]
+        )
+        result = await super().ainvoke(modified_input, config, **kwargs)
+        result_msgs = result.get("messages", []) if isinstance(result, dict) else list(result)
+        return {"messages": result_msgs + blocked}
 
 
 # ---------------------------------------------------------------------------
@@ -275,11 +358,26 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # than inferred from a "provider/model" string.  Split on "/" so both
     # formats work: "google_genai/gemini-2.5-flash" (recommended)
     # and bare model names like "gpt-4o" (provider inferred by LangChain).
+    _llm_kwargs: dict = {"temperature": LLM_TEMPERATURE}
+    if LLM_MAX_TOKENS is not None:
+        _llm_kwargs["max_tokens"] = LLM_MAX_TOKENS
+    # Proactive rate limiting: queue requests before they reach the API so the
+    # pipeline never triggers a 429.  All six agents share one LLM instance, so
+    # a single limiter here covers the entire pipeline.
+    # Set LLM_RPM_LIMIT in .env to match your API tier (e.g. 15 for the Gemini
+    # AI Studio free tier).  0 = unlimited (default).
+    if LLM_RPM_LIMIT > 0:
+        from langchain_core.rate_limiters import InMemoryRateLimiter
+        _llm_kwargs["rate_limiter"] = InMemoryRateLimiter(
+            requests_per_second=LLM_RPM_LIMIT / 60,
+            check_every_n_seconds=0.1,
+            max_bucket_size=1,  # no bursting — enforce the rate strictly
+        )
     if "/" in LLM_MODEL:
         _provider, _model_name = LLM_MODEL.split("/", 1)
-        llm = init_chat_model(_model_name, model_provider=_provider, temperature=LLM_TEMPERATURE)
+        llm = init_chat_model(_model_name, model_provider=_provider, **_llm_kwargs)
     else:
-        llm = init_chat_model(LLM_MODEL, temperature=LLM_TEMPERATURE)
+        llm = init_chat_model(LLM_MODEL, **_llm_kwargs)
 
     # -----------------------------------------------------------------------
     # Per-agent tool sets
@@ -313,47 +411,85 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # Planner node — supervisor that routes to workers
     # -----------------------------------------------------------------------
 
+    # The Planner uses a _DeduplicatingToolNode which:
+    #   1. Blocks exact-duplicate read_file / list_directory / dbt-list calls within
+    #      a single Planner invocation.  _seen is cleared at the start of each
+    #      planner_node call so dedup is per-invocation, not per-pipeline-run.
+    #      This prevents the Planner from cycling through the same filesystem paths
+    #      or through every dbt resource_type endlessly during Phase 1 exploration.
+    #   2. Handles tool errors gracefully (handle_tool_errors=True) so exceptions
+    #      such as FileNotFoundError from get_lineage_dev are returned as ToolMessages
+    #      instead of crashing the pipeline.
+    # Workers use a plain ToolNode with error handling only — deduplication is not
+    # needed there because workers execute a focused task, not open-ended exploration.
+    planner_dedup_node = _DeduplicatingToolNode(planner_tools, handle_tool_errors=True)
     planner_agent = create_react_agent(
         llm,
-        planner_tools,
+        planner_dedup_node,
         prompt=PLANNER_SYSTEM_PROMPT,
     )
 
+    # Worker-name sentinel used for Phase 2 detection.
+    _WORKER_COMPLETION_MARKER = "] Task completed."
+
     async def planner_node(state: AgentState, config: RunnableConfig) -> dict:
         cb = _make_callback("planner", session_id)
-        cfg = {**config, "callbacks": [cb]}
+        # Override the outer graph's recursion_limit so the Planner's inner
+        # ReAct agent cannot spin indefinitely.  Each tool call costs 2 steps
+        # (one LLM step + one tool-execution step), so PLANNER_MAX_STEPS=25
+        # allows ~12 tool calls before GraphRecursionError is raised.
+        cfg = {**config, "callbacks": [cb], "recursion_limit": PLANNER_MAX_STEPS}
 
+        # Reset the dedup cache for this invocation.  Deduplication is
+        # per-planner-call, not per-pipeline-run: within a single exploration
+        # phase the Planner cannot repeat a tool call; but after a worker
+        # returns the Planner is allowed to call dbt list / list_directory
+        # again (e.g. to confirm newly materialised models exist).
+        planner_dedup_node._seen.clear()
+
+        # ------------------------------------------------------------------
+        # Phase 2 detection and context injection.
+        #
+        # After a worker completes, its summary arrives as a HumanMessage
+        # in the format "[worker_name] Task completed.\n\n<summary>".
+        # We detect this, extract the worker name for retry tracking, and
+        # inject a [PHASE 2 REMINDER] that:
+        #   - Echoes the current plan so the Planner can identify the next step.
+        #   - Instructs the Planner to evaluate the summary and route immediately.
+        #   - Escalates the retry warning if the worker has already been retried.
+        #   - Names the explicit next required step to prevent silent skipping.
+        # ------------------------------------------------------------------
         messages = list(state["messages"])
         last_msg = messages[-1] if messages else None
-
-        # Detect Phase 2: the last message is a worker completion HumanMessage.
         is_phase_2 = (
             isinstance(last_msg, HumanMessage)
             and _WORKER_COMPLETION_MARKER in (last_msg.content or "")
         )
 
-        # Extract which worker just completed.
+        # Extract the name of the worker that just completed (e.g. "data_profile_worker").
         completed_worker: str | None = None
         if is_phase_2 and last_msg is not None:
             m = re.match(r"\[([^\]]+)\] Task completed\.", last_msg.content or "")
             if m:
                 completed_worker = m.group(1)
 
-        # Retry tracking.
+        # Current retry tally (carried forward in state across planner calls).
         current_retry_counts: dict[str, int] = dict(state.get("retry_counts") or {})
         worker_retry_count = (
             current_retry_counts.get(completed_worker, 0) if completed_worker else 0
         )
+
+        # Build an escalating retry note to include in the reminder.
         if worker_retry_count == 1:
             retry_note = (
-                f"\n\n⚠ NOTE: {completed_worker} has already been retried once. "
+                f"\n⚠ NOTE: {completed_worker} has already been retried once. "
                 "If the output is still incomplete, note the remaining gap as an "
                 "outstanding item and advance to the next plan step — "
                 "do not re-delegate a third time."
             )
         elif worker_retry_count >= 2:
             retry_note = (
-                f"\n\n🚫 HARD LIMIT: {completed_worker} has been retried "
+                f"\n🚫 HARD LIMIT: {completed_worker} has been retried "
                 f"{worker_retry_count} time(s). You MUST NOT re-delegate to this "
                 "worker again. Accept the output as-is, note any remaining gaps "
                 "in the task field, and advance to the next plan step."
@@ -361,12 +497,10 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
         else:
             retry_note = ""
 
-        # Inject Phase 2 reminder with explicit next-step guidance.
-        plan_list: list[str] = list(state.get("plan") or [])
-        if is_phase_2 and plan_list:
-            plan_text = "\n".join(plan_list)
-            next_step_hint = _find_next_plan_step(plan_list, completed_worker)
-            messages = messages + [
+        if is_phase_2 and state.get("plan"):
+            plan_text = "\n".join(state["plan"])
+            next_step_hint = _find_next_plan_step(state["plan"], completed_worker)
+            messages.append(
                 HumanMessage(
                     content=(
                         "[PHASE 2 REMINDER]\n"
@@ -374,10 +508,9 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
                         f"{plan_text}\n\n"
                         "Review the worker's summary against the expected deliverables "
                         "(see 'Worker output review' in your instructions).\n"
-                        "  • If acceptable: mark the completed step DONE in the plan "
-                        "and output the routing JSON for the next step.\n"
-                        "  • If a deliverable is missing: re-delegate to the SAME "
-                        "worker with a corrective task describing exactly what is missing.\n"
+                        "  • If acceptable: output the routing JSON for the NEXT step.\n"
+                        "  • If a deliverable is missing: re-delegate to the SAME worker "
+                        "with a corrective task describing exactly what is missing.\n"
                         "You may make AT MOST 2 targeted verification calls before "
                         "routing (e.g. confirm a model was materialised, read a "
                         "specific output file). After those calls — or immediately "
@@ -385,30 +518,59 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
                         "⚠ NO open-ended re-survey: do not loop through directories, "
                         "do not cycle dbt list resource_types, do not re-read files "
                         "already in this conversation. Workers are not function calls "
-                        f"— delegate only through the JSON routing block."
-                        f"{next_step_hint}{retry_note}"
+                        f"— delegate only through the JSON routing block.{retry_note}"
+                        f"{next_step_hint or ''}"
                     )
                 )
-            ]
+            )
 
-        result = await planner_agent.ainvoke(
-            {"messages": messages},
-            {**cfg, "recursion_limit": PLANNER_MAX_STEPS},
-        )
-        last_ai_msg: AIMessage = result["messages"][-1]
-        decision = _extract_planner_decision(str(last_ai_msg.content))
+        try:
+            result = await planner_agent.ainvoke(
+                {"messages": messages}, cfg
+            )
+            last_msg: AIMessage = result["messages"][-1]
+        except Exception as exc:
+            # GraphRecursionError (or any unexpected error) from the inner agent:
+            # produce a FINISH so the outer graph terminates cleanly rather than
+            # crashing.  The error is surfaced in the final summary.
+            if "recursion" in type(exc).__name__.lower() or "recursion" in str(exc).lower():
+                reason = (
+                    "The Planner exceeded its exploration budget without reaching a "
+                    "decision. This usually means the project has no dbt models yet "
+                    "(dbt list returned 'OK') and the Planner kept searching instead "
+                    "of delegating. Re-run with a more specific task or check the "
+                    "dbt project structure."
+                )
+            else:
+                reason = f"Unexpected Planner error: {exc}"
+            last_msg = AIMessage(content=json.dumps({
+                "reasoning": reason,
+                "next_worker": "FINISH",
+                "task": reason,
+            }))
+        decision = _extract_planner_decision(str(last_msg.content))
 
-        # Keep the plan up to date: use the revised plan if the Planner provided one.
-        new_plan: list[str] = decision.get("plan") or plan_list
-
-        # Track retries: if the Planner re-delegates to the worker that just ran,
-        # increment its retry counter.
+        # ------------------------------------------------------------------
+        # Retry tracking — if the Planner routes back to the worker that just
+        # completed, record it so that escalating warnings can be shown on the
+        # next invocation and a hard cap can be enforced after two retries.
+        # ------------------------------------------------------------------
         next_w = decision.get("next_worker", "FINISH")
         if completed_worker and next_w == completed_worker and next_w in _WORKER_NAMES:
             current_retry_counts[next_w] = current_retry_counts.get(next_w, 0) + 1
 
+        # Carry the plan forward in state.  The Planner includes "plan" in its
+        # JSON on the first response and whenever it revises the plan; it omits
+        # the field on routine step-by-step execution to save tokens.  We keep
+        # the last known plan so it is always visible in the graph state.
+        updated_plan = decision.get("plan")
+        if isinstance(updated_plan, list) and updated_plan:
+            new_plan = updated_plan
+        else:
+            new_plan = state.get("plan", [])
+
         return {
-            "messages": [last_ai_msg],
+            "messages": [last_msg],
             "next_worker": next_w,
             "current_task": decision.get("task", ""),
             "plan": new_plan,
@@ -420,7 +582,11 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
     # -----------------------------------------------------------------------
 
     def _make_worker_node(agent_id: str, tools: List[BaseTool], system_prompt: str):
-        worker_agent = create_react_agent(llm, tools, prompt=system_prompt)
+        worker_agent = create_react_agent(
+            llm,
+            ToolNode(tools, handle_tool_errors=True),
+            prompt=system_prompt,
+        )
 
         async def worker_node(state: AgentState, config: RunnableConfig) -> dict:
             cb = _make_callback(agent_id, session_id)
@@ -428,7 +594,15 @@ async def build_graph(mcp_tools: List[BaseTool], session_id: str):
             task_msg = HumanMessage(content=state["current_task"])
             result = await worker_agent.ainvoke({"messages": [task_msg]}, cfg)
             last: AIMessage = result["messages"][-1]
-            # HumanMessage so planner_node can detect Phase 2 via _WORKER_COMPLETION_MARKER.
+            # Return the worker summary as a HumanMessage, not an AIMessage.
+            # The Planner is a create_react_agent whose conversation history
+            # accumulates across the pipeline: each call sees all prior messages.
+            # If the worker summary were an AIMessage the Planner would see two
+            # consecutive AI turns (its own routing decision + the worker report)
+            # and interpret the worker summary as its own prior response — causing
+            # it to produce an empty completion on the next call.
+            # Using HumanMessage preserves the correct Human→AI alternation:
+            #   Human(task) → AI(plan+delegate) → Human(worker report) → AI(next step)
             summary = HumanMessage(
                 content=f"[{agent_id}] Task completed.\n\n{last.content}"
             )
@@ -514,9 +688,16 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
 
     Returns
     -------
-    A tuple of (final graph state dict, session_id string).
+    A tuple of (final graph state dict, session_id).  The session_id
+    identifies this run's entries in the audit log.
     """
-    session_id = str(uuid.uuid4())
+    session_id = str(uuid4())
+
+    # Write the very first audit entry for this session so that the user's
+    # prompt is recorded before any agent activity begins.
+    AuditTrailCallback(
+        log_path=AUDIT_LOG_PATH, agent_id="system", session_id=session_id
+    ).log_system_start(task)
 
     mcp_server_config = {
         "duckdb": {
@@ -533,6 +714,12 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
                 **os.environ,
                 "DBT_PROJECT_DIR": DBT_PROJECT_DIR,
                 "DBT_PROFILES_DIR": DBT_PROFILES_DIR,
+                # Disable all dbt Cloud features so the server runs in local
+                # CLI-only mode without requiring DBT_HOST / DBT_TOKEN.
+                "DISABLE_DISCOVERY": "true",
+                "DISABLE_SEMANTIC_LAYER": "true",
+                "DISABLE_ADMIN_API": "true",
+                "DISABLE_SQL": "true",
             },
         },
     }
@@ -558,11 +745,11 @@ async def run_pipeline(task: str) -> tuple[dict[str, Any], str]:
         "messages": [HumanMessage(content=task)],
         "next_worker": "",
         "current_task": task,
-        "plan": [],
-        "retry_counts": {},
+        "plan": [],          # populated by the Planner on its first response
+        "retry_counts": {},  # incremented each time Planner re-delegates to a worker
     }
-    result = await compiled.ainvoke(
+    final_state = await compiled.ainvoke(
         initial_state,
         {"recursion_limit": MAX_GRAPH_ITERATIONS},
     )
-    return result, session_id
+    return final_state, session_id

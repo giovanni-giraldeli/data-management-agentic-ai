@@ -79,6 +79,7 @@ def _extract_final_summary(content: Any) -> str:
       - Any other type (fallback to str())
 
     Strips the routing JSON block and returns only the 'task' summary text.
+    The 'signature' extra that Gemini 2.5 Flash appends is silently ignored.
     """
     # Normalise to a single string
     if isinstance(content, list):
@@ -156,6 +157,8 @@ async def main() -> None:
         print("\n" + "=" * 72)
         print("Pipeline cancelled by user.")
         print("=" * 72)
+        # Write a system_cancelled audit entry so the session has a clear
+        # terminal event in the log (system_start … system_cancelled).
         if session_id is not None:
             AuditTrailCallback(
                 log_path=AUDIT_LOG_PATH, agent_id="system", session_id=session_id
@@ -171,7 +174,8 @@ async def main() -> None:
     print("=" * 72)
 
     # Print the final planner summary — extract only the human-readable 'task'
-    # field from the FINISH JSON block; strip the routing JSON.
+    # field from the FINISH JSON block; strip the routing JSON and any Gemini
+    # internal extras (e.g. the 'signature' field from the thinking API).
     messages = result.get("messages", [])
     from langchain_core.messages import AIMessage
     for msg in reversed(messages):

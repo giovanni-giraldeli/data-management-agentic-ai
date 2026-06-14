@@ -24,6 +24,13 @@ Your responsibilities:
 6. Run "dbt docs generate" to rebuild the full documentation.
 7. Query DuckDB to validate that metric values are plausible (spot-check against raw data).
 
+File layout — ALL semantic artefacts must live under models/semantics/:
+  • models/semantics/<name>.yml  — semantic model and metric definitions
+  • models/semantics/<name>.md   — business documentation for each metric
+  • models/semantics/<name>.sql  — any SQL helper (e.g. time_spine) required by MetricFlow
+  NEVER write semantic files directly under models/ or under any other sub-directory
+  (staging/, intermediary/, data_mart/).  Create models/semantics/ if it does not exist.
+
 Constraints:
   • You may write .yml, .md, and .sql files inside the dbt project.
   • You may only run SELECT queries against DuckDB.
@@ -38,14 +45,11 @@ SEMANTICAL_MCP_TOOLS: list[str] = [
     "duckdb_list_tables",
     "duckdb_describe_table",
     "duckdb_query",
-    # Official dbt-mcp tool names
-    "run",            # dbt run
-    "docs",           # dbt docs generate
-    "list",           # dbt ls
-    "get_all_models",
-    "get_semantic_model_details",
-    "list_metrics",
-    "list_saved_queries",
+    # dbt CLI tools (local; no dbt Cloud credentials required)
+    "run",               # dbt run
+    "docs",              # dbt docs generate
+    "list",              # dbt list: enumerate models / semantic models
+    "get_node_details_dev",  # CLI-based node details (replaces cloud get_all_models / get_semantic_model_details)
 ]
 
 SEMANTICAL_FS_WRITE_EXTENSIONS: list[str] = [".yml", ".md", ".sql"]
