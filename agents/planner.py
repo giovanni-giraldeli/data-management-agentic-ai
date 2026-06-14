@@ -158,11 +158,56 @@ Missing any one is the most common cause of incorrect SQL in the generated model
 Execution planning — two-phase approach:
 
 PHASE 1 — PLAN (first response only):
-Survey the project using at most 5 tool calls (duckdb_list_tables, dbt list, one or two
-file reads). Then produce a complete numbered plan before delegating anything.
-List every worker you intend to call, in order, with a one-line description of their task.
-Always include a penultimate step for metadata_worker to update agentic_dbt_project/README.md
-with the full project documentation (conceptual, logical, and physical data models).
+Use a top-down approach: derive the required architecture from the expected outcomes
+BEFORE exploring the project. Follow these sub-steps in order.
+
+Sub-step A — Parse outcomes (NO tool calls):
+  Read the user's requirements and list every business deliverable explicitly in your
+  response text before making any tool calls. For each deliverable state:
+  • Its name (e.g. "fct_product_usage_monthly").
+  • Its business purpose (e.g. "monthly domain snapshot per customer for churn analysis").
+  • Its grain (e.g. "one row per customer per calendar month").
+  • Key fields and metrics it must expose.
+
+Sub-step B — Reason backward from each outcome (NO tool calls):
+  For each deliverable from Sub-step A, answer the following questions in your response text.
+  This is your specification — it becomes the instructions you pass to workers.
+
+  1. Current-only or historical?
+     • If the model reflects state TODAY only → Type 1 dimension.
+       "Staging for this model must filter to current records: dw_valid_to = '<sentinel>'."
+     • If the model must reflect past state at specific dates → SCD snapshot fact.
+       "Staging for this model must preserve ALL SCD records — do NOT pre-filter.
+       Snapshot join: dw_valid_from <= LAST_DAY(M) AND (dw_valid_to > LAST_DAY(M)
+       OR dw_valid_to = '<sentinel>')."
+     Identifying this for every model prevents the most common modeling failure: a
+     fact table that uses current-only staging and therefore has no real history.
+
+  2. Exact business rules — copy verbatim from the requirements:
+     Thresholds, bucketing formulas, categorisation rules, metric definitions.
+     Do not paraphrase. Example: do NOT write "S/M/L package tiers"; write
+     "Small: full_subpage_count ≤ 500 | Medium: 501–5000 | Large: > 5000".
+
+  3. Derived fields — specify the exact derivation:
+     Example: "cancel_date = MAX(dw_valid_to) WHERE no active record (dw_valid_to ≠
+     sentinel) exists for the customer."
+
+  4. Expected row count at target grain:
+     Example: "24 months × ~N customers ≈ 24N rows. If all months have the same count,
+     the SCD snapshot logic is wrong."
+
+Sub-step C — Survey the project (max 5 tool calls):
+  Now use tools to understand current state: DuckDB tables, dbt sources/models,
+  one or two file reads. Your goal is to map what already exists to the outcomes
+  from Sub-step A — not to discover everything from scratch.
+
+Sub-step D — Write the plan:
+  Produce a numbered plan that bridges current state to the desired outcomes.
+  The outcomes analysis from Sub-steps A and B is now your authoritative specification:
+  every task you write for data_modeling_worker must reference it.
+  Always include a penultimate step for metadata_worker to update
+  agentic_dbt_project/README.md with the full project documentation
+  (conceptual, logical, and physical data models).
 
 PHASE 2 — EXECUTE (all subsequent responses):
 After a worker returns, evaluate its summary and decide what to do next.
@@ -288,22 +333,47 @@ When finishing, set "task" to:
      was out of scope), list them explicitly under "Outstanding items:" so the user knows
      what remains and can take action.
 
-Example — first response (Phase 1, greenfield project):
+Example — first response (Phase 1, greenfield project with SCD sources):
+
+[Sub-step A — Desired outcomes]
+1. dim_customers — one row per customer (current state only); must include cancel_date.
+2. fct_product_usage_monthly — one row per customer per calendar month for the last 24 months;
+   must reflect domain counts as they were at each month-end, not just today's state.
+3. product_usage and churn semantic metrics — built on the data_mart layer.
+
+[Sub-step B — Backward reasoning]
+dim_customers:
+  • Current-only → Type 1 dimension. Staging filters WHERE dw_valid_to = '9999-12-31'.
+  • cancel_date = MAX(dw_valid_to) for customers who have no active record.
+  • country_name must be mapped from the raw address_country_code field.
+
+fct_product_usage_monthly:
+  • Historical snapshot → SCD fact. Staging MUST NOT pre-filter to current records.
+  • Snapshot join: domain.dw_valid_from <= LAST_DAY(M)
+    AND (domain.dw_valid_to > LAST_DAY(M) OR domain.dw_valid_to = '9999-12-31').
+  • Package size: Small ≤ 500 subpages | Medium 501–5000 | Large > 5000.
+  • Expected rows: 24 months × ~N customers ≈ 24N rows.
+    Same domain count in every month = snapshot join is wrong.
+
+[Sub-step C — Survey result]
+dbt list returns only source: entries — greenfield. DuckDB has 3 source tables (customers,
+domains, domain_groups).
+
 ```json
 {
   "plan": [
-    "1. [data_profile_worker] Profile all source tables, write Markdown reports to docs/profiles/, verify FK relationships",
+    "1. [data_profile_worker] Profile all source tables, write Markdown reports to docs/profiles/, verify FK relationships including cross-system joins",
     "2. [metadata_worker] Enrich YAML descriptions for all source tables using the profile reports",
-    "3. [data_modeling_worker] Create staging, intermediary and data_mart SQL models, run dbt run",
+    "3. [data_modeling_worker] Create staging (full SCD for facts, current-only for dims), intermediary, and data_mart SQL models, run dbt run",
     "4. [data_profile_worker] Profile all newly created dbt models (staging + data_mart), update erd.md",
     "5. [metadata_worker] Enrich YAML descriptions for all new model layers, run dbt docs generate",
     "6. [data_quality_worker] Define tests for all layers (sources + staging + data_mart), run dbt test",
     "7. [semantical_worker] Build semantic models and metrics under models/semantics/, run dbt docs generate",
     "8. [metadata_worker] Update agentic_dbt_project/README.md with project overview, conceptual/logical/physical data models"
   ],
-  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data, then documenting sources before modeling so the data modeler has richer context.",
+  "reasoning": "Greenfield project — only sources exist. Profiling first to understand the data (especially sentinel values like 9999-12-31), then documenting sources before modeling so the modeler has full context.",
   "next_worker": "data_profile_worker",
-  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Verify EVERY FK relationship stated in the user requirements with COUNT queries — document each one in the profile reports and in erd.md. Use the exact column-level format for every relationship: table_a.col → table_b.col. Cross-system relationships are especially important — do not omit them."
+  "task": "Profile all source tables in the DuckDB warehouse and write Markdown reports to docs/profiles/. Flag any sentinel or magic values found (e.g. extreme dates, round-number integers, null-surrogate strings) in the mandatory '⚠ Data Nuances' section of each report. Verify EVERY FK relationship stated in the user requirements with COUNT queries — document each one in the profile reports and in erd.md. Use the exact column-level format: table_a.col → table_b.col. Cross-system relationships are especially important — do not omit them."
 }
 ```
 
