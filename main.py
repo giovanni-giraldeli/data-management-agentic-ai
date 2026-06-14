@@ -22,9 +22,12 @@ inspect-and-report task is used.
 """
 
 import asyncio
+import json
 import os
+import re
 import sys
 from pathlib import Path
+from typing import Any
 
 # Make sure the repo root is on the path regardless of where this is invoked from
 _REPO_ROOT = Path(__file__).parent
@@ -41,7 +44,7 @@ from orchestrator.graph import run_pipeline
 _DEFAULT_TASK = (
     "Inspect the current state of the project and report back. "
     "Specifically: "
-    "(1) List all tables present in the DuckDB warehouse and summarise their row counts and columns. "
+    "(1) List all tables present in the DuckDB warehouse and describe their columns and data types. "
     "(2) List all existing dbt models, sources, and tests defined in the project. "
     "(3) Summarise any data profile reports (.md files) already written under docs/. "
     "Do not create, modify, or delete any files. Only read and report."
@@ -64,6 +67,47 @@ def _read_task_file(path: Path) -> str:
         return "\n\n".join(pages).strip()
     else:
         return path.read_text(encoding="utf-8").strip()
+
+
+def _extract_final_summary(content: Any) -> str:
+    """Return a clean, human-readable summary from the Planner's final message.
+
+    Handles three content shapes:
+      - Plain string (most providers)
+      - List of content-part dicts, e.g. Gemini thinking output:
+        [{'type': 'text', 'text': '...', 'extras': {'signature': '...'}}]
+      - Any other type (fallback to str())
+
+    Strips the routing JSON block and returns only the 'task' summary text.
+    """
+    # Normalise to a single string
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+            elif isinstance(part, str):
+                parts.append(part)
+        text = "\n".join(parts)
+    else:
+        text = str(content)
+
+    # Try to extract just the 'task' field from the routing JSON block
+    try:
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if not match:
+            match = re.search(r"(\{[^{}]*\"next_worker\"[^{}]*\})", text, re.DOTALL)
+        if match:
+            decision = json.loads(match.group(1))
+            task_text = decision.get("task", "").strip()
+            if task_text:
+                return task_text
+    except Exception:
+        pass
+
+    # Fallback: strip fenced code blocks and return the remaining prose
+    text = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", text, flags=re.DOTALL).strip()
+    return text or "(No summary available.)"
 
 
 def _resolve_arg(arg: str) -> str:
@@ -94,22 +138,50 @@ async def main() -> None:
     print(f"Audit log  : {AUDIT_LOG_PATH}")
     print("=" * 72)
 
-    result = await run_pipeline(task)
+    from datetime import datetime, timezone
+    from audit.callbacks import AuditTrailCallback
 
+    start_time = datetime.now(timezone.utc)
+    print(f"Started    : {start_time.isoformat(timespec='seconds')}")
+    print("(Press Ctrl+C to stop the pipeline at any time.)")
+
+    session_id: str | None = None
+    try:
+        result, session_id = await run_pipeline(task)
+    except KeyboardInterrupt:
+        end_time = datetime.now(timezone.utc)
+        elapsed = end_time - start_time
+        print(f"\n\nCancelled  : {end_time.isoformat(timespec='seconds')}")
+        print(f"Elapsed    : {int(elapsed.total_seconds())}s")
+        print("\n" + "=" * 72)
+        print("Pipeline cancelled by user.")
+        print("=" * 72)
+        if session_id is not None:
+            AuditTrailCallback(
+                log_path=AUDIT_LOG_PATH, agent_id="system", session_id=session_id
+            ).log_system_cancelled()
+        return
+
+    end_time = datetime.now(timezone.utc)
+    elapsed = end_time - start_time
+    print(f"\nFinished   : {end_time.isoformat(timespec='seconds')}")
+    print(f"Elapsed    : {int(elapsed.total_seconds())}s")
     print("\n" + "=" * 72)
     print("Pipeline complete.")
     print("=" * 72)
 
-    # Print the final planner summary (last AI message)
+    # Print the final planner summary — extract only the human-readable 'task'
+    # field from the FINISH JSON block; strip the routing JSON.
     messages = result.get("messages", [])
+    from langchain_core.messages import AIMessage
     for msg in reversed(messages):
-        from langchain_core.messages import AIMessage
         if isinstance(msg, AIMessage):
             print("\nFinal summary:\n")
-            print(msg.content)
+            print(_extract_final_summary(msg.content))
             break
 
-    print(f"\nFull audit trail written to: {AUDIT_LOG_PATH}")
+    print(f"\nSession ID : {session_id}")
+    print(f"Audit log  : {AUDIT_LOG_PATH}")
 
 
 if __name__ == "__main__":

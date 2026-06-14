@@ -43,10 +43,11 @@ class AuditTrailCallback(BaseCallbackHandler):
     # parallel threads cannot interleave their writes to the same file.
     _file_lock: threading.Lock = threading.Lock()
 
-    def __init__(self, log_path: str, agent_id: str) -> None:
+    def __init__(self, log_path: str, agent_id: str, session_id: str = "") -> None:
         super().__init__()
         self.log_path = Path(log_path)
         self.agent_id = agent_id
+        self.session_id = session_id
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -54,12 +55,16 @@ class AuditTrailCallback(BaseCallbackHandler):
     # ------------------------------------------------------------------
 
     def _append(self, entry: Dict[str, Any]) -> None:
+        entry["session_id"] = self.session_id
         entry["timestamp"] = datetime.now(timezone.utc).isoformat()
         entry["agent_id"] = self.agent_id
         line = json.dumps(entry, default=str)
         with self._file_lock:
             with self.log_path.open("a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
+
+    def log_system_cancelled(self) -> None:
+        self._append({"event_type": "system_cancelled"})
 
     # ------------------------------------------------------------------
     # LLM events
