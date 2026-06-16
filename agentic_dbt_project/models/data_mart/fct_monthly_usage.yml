@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: fct_monthly_usage
+    description: Fact table tracking monthly domain usage per customer, categorized by package size.
+    columns:
+      - name: month_end
+        description: The end date of the month for which usage is recorded.
+        tests:
+          - not_null
+      - name: customer_id
+        description: The unique identifier of the customer.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customers')
+              field: user_id
+      - name: domain_count
+        description: The number of non-temporary domains owned by the customer in that month.
+      - name: package_category
+        description: The usage category (S, M, L) based on the number of domains.

@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_aspnet_membership
+    description: Staging model for ASP.NET membership data, filtering for currently active records.
+    columns:
+      - name: user_id
+        description: The unique identifier of a user.
+        tests:
+          - unique
+          - not_null
+      - name: user_create_time
+        description: The datetime that the user was created in the system.
+      - name: dw_valid_from
+        description: The timestamp from which the record is valid in the data warehouse.
+      - name: dw_valid_to
+        description: The timestamp until which the record is valid in the data warehouse.

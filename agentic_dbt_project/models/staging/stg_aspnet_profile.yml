@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: stg_aspnet_profile
+    description: Staging model for ASP.NET profile data, filtering for currently active records.
+    columns:
+      - name: user_id
+        description: The unique identifier of a user.
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('stg_aspnet_membership')
+              field: user_id
+      - name: address_country_code
+        description: The ISO 2 digit country code where the customer is located.
+      - name: customer_plan
+        description: The type of the plan associated with the user.
+      - name: customer_payment_type
+        description: Indicates the payment method associated with the user.
+      - name: dw_valid_from
+        description: The timestamp from which the record is valid in the data warehouse.
+      - name: dw_valid_to
+        description: The timestamp until which the record is valid in the data warehouse.

@@ -1,0 +1,74 @@
+version: 2
+
+semantic_models:
+  - name: sm_customers
+    model: ref('dim_customers')
+    entities:
+      - name: customer
+        type: primary
+        expr: user_id
+    dimensions:
+      - name: customer_plan
+        type: categorical
+      - name: country_name
+        type: categorical
+    measures:
+      - name: count_customers
+        agg: count
+        expr: user_id
+
+  - name: sm_domains
+    model: ref('fct_monthly_usage')
+    entities:
+      - name: customer
+        type: foreign
+        expr: customer_id
+    dimensions:
+      - name: package_category
+        type: categorical
+    measures:
+      - name: count_domains
+        agg: sum
+        expr: domain_count
+
+metrics:
+  - name: total_customers
+    label: Total Number of Customers
+    description: "Total count of unique customers"
+    type: simple
+    type_params:
+      measure: count_customers
+
+  - name: total_domains
+    label: Total Number of Domains
+    description: "Total count of domains across all customers"
+    type: simple
+    type_params:
+      measure: count_domains
+
+  - name: domains_s_package
+    label: Domains in S Package
+    description: "Number of domains in S package"
+    type: simple
+    type_params:
+      measure: count_domains
+    filter: |
+      {{ Dimension('sm_domains.package_category') }} = 'S'
+
+  - name: domains_m_package
+    label: Domains in M Package
+    description: "Number of domains in M package"
+    type: simple
+    type_params:
+      measure: count_domains
+    filter: |
+      {{ Dimension('sm_domains.package_category') }} = 'M'
+
+  - name: domains_l_package
+    label: Domains in L Package
+    description: "Number of domains in L package"
+    type: simple
+    type_params:
+      measure: count_domains
+    filter: |
+      {{ Dimension('sm_domains.package_category') }} = 'L'

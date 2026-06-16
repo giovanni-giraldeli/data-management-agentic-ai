@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: Dimension table containing customer details, including plan information and domain activity metrics.
+    columns:
+      - name: user_id
+        description: The unique identifier of a user.
+        tests:
+          - unique
+          - not_null
+      - name: create_date
+        description: The date the customer account was created.
+      - name: country_name
+        description: The full name of the country where the customer is located.
+      - name: customer_plan
+        description: The type of the plan associated with the user.
+      - name: max_subpage_count
+        description: The maximum number of subpages observed for any domain owned by the customer.

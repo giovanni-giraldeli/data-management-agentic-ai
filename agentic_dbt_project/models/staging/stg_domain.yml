@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_domain
+    description: Staging model for domain events, filtering for currently active records.
+    columns:
+      - name: domain_id
+        description: Unique identifier of the domain.
+        tests:
+          - unique
+          - not_null
+      - name: domain_group_id
+        description: Unique identifier of the domain group.
+        tests:
+          - not_null
+      - name: full_subpage_count
+        description: The number of subpages for the domain.
+      - name: is_temp_domains
+        description: A flag to indicate if the domain is temporary.
+      - name: dw_valid_from
+        description: The timestamp from which the record is valid in the data warehouse.
+      - name: dw_valid_to
+        description: The timestamp until which the record is valid in the data warehouse.
