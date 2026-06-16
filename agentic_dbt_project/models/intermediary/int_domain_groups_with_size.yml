@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: int_domain_groups_with_size
+    description: Intermediary model calculating the size of each domain group.
+    columns:
+      - name: domain_group_id
+        description: "The unique identifier of a domain group."
+      - name: domain_count
+        description: "The total number of domains associated with this domain group."

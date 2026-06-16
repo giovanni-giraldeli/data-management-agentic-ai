@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_domain_group
+    description: Staging model for domain groups, linking domains to customers.
+    columns:
+      - name: domain_group_Id
+        description: "The unique identifier of a domain group. Primary key."
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "The identifier of the customer who owns this domain group. Foreign key to stg_aspnet_profile."
+      - name: dw_valid_from
+        description: "The timestamp from which the record is valid in the data warehouse."
+      - name: dw_valid_to
+        description: "The timestamp until which the record is valid in the data warehouse."

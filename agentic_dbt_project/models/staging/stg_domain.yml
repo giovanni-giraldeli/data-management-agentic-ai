@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: stg_domain
+    description: Staging model for domain records, sourced from raw domain table.
+    columns:
+      - name: domain_id
+        description: "The unique identifier of a domain. Primary key."
+        tests:
+          - unique
+          - not_null
+      - name: domain_group_id
+        description: "The identifier of the domain group this domain belongs to. Foreign key to stg_domain_group."
+        tests:
+          - relationships:
+              to: ref('stg_domain_group')
+              field: domain_group_Id
+      - name: domain_name
+        description: "The name of the domain."
+      - name: domain_create_time
+        description: "The timestamp when the domain was created."
+      - name: dw_valid_from
+        description: "The timestamp from which the record is valid in the data warehouse."
+      - name: dw_valid_to
+        description: "The timestamp until which the record is valid in the data warehouse."

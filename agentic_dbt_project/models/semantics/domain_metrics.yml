@@ -1,0 +1,30 @@
+version: 2
+
+semantic_models:
+  - name: fct_monthly_domain_count
+    description: Monthly domain counts aggregated by company size.
+    model: ref('fct_monthly_domain_count')
+    defaults:
+      agg_time_dimension: month
+    entities:
+      - name: company_size
+        type: primary
+        expr: company_size
+    measures:
+      - name: domain_count
+        description: The count of domains.
+        agg: sum
+        expr: domain_count
+    dimensions:
+      - name: month
+        type: time
+        type_params:
+          time_granularity: month
+
+metrics:
+  - name: total_domain_count
+    description: Total sum of domains.
+    label: Total Domain Count
+    type: simple
+    type_params:
+      measure: domain_count

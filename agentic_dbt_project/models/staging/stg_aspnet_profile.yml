@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: stg_aspnet_profile
+    description: Staging model for customer profile information, sourced from raw aspnet_profile.
+    columns:
+      - name: user_id
+        description: "The unique identifier of a user. Primary key, 100% unique."
+        tests:
+          - not_null
+      - name: address_country_code
+        description: "The ISO 2 digit country code where the customer is located. Note: ~14% null rate, indicating optional profile data."
+      - name: payment_currency
+        description: "The currency associated with the user payment method."
+      - name: payment_card_expiration_date
+        description: "The expiration date for the card. Note: ~27% null rate, indicating optional payment details."
+      - name: payment_card_type
+        description: "The brand of the card."
+      - name: payment_data_completed
+        description: "Indicates if the payment method data is complete."
+      - name: user_language
+        description: "User language in the application."
+      - name: wants_newsletter
+        description: "Indicates if the user wants to receive the newsletter."
+      - name: company_size
+        description: "Bins of the company size."
+        tests:
+          - accepted_values:
+              values: ['Small', 'Medium', 'Large', 'Enterprise', null]
+      - name: customer_plan
+        description: "The type of the plan associated with the user."
+      - name: customer_payment_type
+        description: "Indicates the payment method associated with the user."
+      - name: dw_valid_from
+        description: "The timestamp from which the record is valid in the data warehouse."
+      - name: dw_valid_to
+        description: "The timestamp until which the record is valid in the data warehouse."

@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: fct_monthly_domain_count
+    description: Data mart model aggregating domain counts by month and company size.
+    columns:
+      - name: month
+        description: "The month of the report."
+      - name: company_size
+        description: "The size category of the company. Note: 42 records are currently orphaned due to missing mappings in the intermediary layer."
+        tests:
+          - accepted_values:
+              values: ['Small', 'Medium', 'Large', 'Enterprise', 'Unknown', null]
+      - name: domain_count
+        description: "The total count of domains for the given month and company size."
